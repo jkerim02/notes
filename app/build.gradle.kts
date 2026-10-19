@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -16,9 +18,20 @@ android {
         versionCode = 1
         versionName = "1.0.0"
     }
+    val ksFile = rootProject.file("keystore.properties")
+    val ks = Properties().apply { if (ksFile.exists()) ksFile.inputStream().use { load(it) } }
+    signingConfigs {
+        if (ksFile.exists()) create("release") {
+            storeFile = file(ks.getProperty("storeFile"))
+            storePassword = ks.getProperty("storePassword")
+            keyAlias = ks.getProperty("keyAlias")
+            keyPassword = ks.getProperty("keyPassword")
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
