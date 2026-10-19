@@ -1,0 +1,11 @@
+.gradle/
+build/
+local.properties
+.idea/
+
+# lokalni dizajn i privatne datoteke
+Lični organizator.html
+.kotlin/
+*.keystore
+*.jks
+scratch_*

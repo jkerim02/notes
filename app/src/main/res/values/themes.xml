@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Organizator" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">#0E1513</item>
+        <item name="android:statusBarColor">#0E1513</item>
+        <item name="android:navigationBarColor">#0E1513</item>
+    </style>
+</resources>
