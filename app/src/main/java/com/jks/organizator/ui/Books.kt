@@ -1,6 +1,8 @@
 package com.jks.organizator.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.*
@@ -14,6 +16,15 @@ import com.jks.organizator.net.Gemini
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+private val LANGS = listOf("Bosanski", "Engleski", "Arapski")
+private val GENRES = listOf("Roman", "Islam", "Nauka", "Biografija", "Poezija", "Udžbenik", "Historija")
+
+/** Jezik riječi za rječnik: "bs" za bosanske knjige, inače "en". */
+private fun langOf(b: Book?): String = if (b != null && b.language.contains("osan", ignoreCase = true)) "bs" else "en"
+
+private fun bookMeta(b: Book): String =
+    listOf(b.author, if (b.year > 0) b.year.toString() else "", b.genre, b.language, b.publisher).filter { it.isNotBlank() }.joinToString(" · ")
+
 @Composable
 fun BooksScreen() {
     val scope = rememberCoroutineScope()
@@ -24,27 +35,35 @@ fun BooksScreen() {
     val book = books.firstOrNull { it.id == s.currentBookId } ?: books.firstOrNull { it.finishedDay == 0L } ?: books.firstOrNull()
 
     var showAdd by remember { mutableStateOf(false) }
+    var showEdit by remember { mutableStateOf(false) }
     var showPage by remember { mutableStateOf(false) }
     var confirmDel by remember { mutableStateOf(false) }
 
     var query by remember { mutableStateOf("") }
+    var lang by remember(book?.id) { mutableStateOf(langOf(book)) }
     var pron by remember { mutableStateOf("") }
     var pos by remember { mutableStateOf("") }
     var tr by remember { mutableStateOf("") }
     var def by remember { mutableStateOf("") }
     var ex by remember { mutableStateOf("") }
     var cardWord by remember { mutableStateOf<String?>(null) }
+    var cardLang by remember { mutableStateOf("en") }
     var loading by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
 
-    fun lookup(w: String) {
-        cardWord = w; err = null; loading = true
+    fun lookup(w: String, l: String) {
+        cardWord = w; cardLang = l; err = null; loading = true
         scope.launch {
-            Gemini.generateJson(
+            val prompt = if (l == "bs")
+                "Za bosansku riječ ili izraz \"$w\"" + (book?.let { " iz knjige \"${it.title}\"" } ?: "") +
+                    " vrati JSON sa ključevima: pronunciation (naglasak/izgovor ako je koristan), pos (vrsta riječi), " +
+                    "translationBs (jasno objašnjenje značenja na bosanskom, uključujući sinonime ili porijeklo ako je riječ strana, npr. turcizam), " +
+                    "definitionEn (prijevod na engleski), example (jedna rečenica upotrebe u kontekstu na bosanskom)."
+            else
                 "Za englesku riječ ili izraz \"$w\"" + (book?.let { " iz knjige \"${it.title}\"" } ?: "") +
                     " vrati JSON sa ključevima: pronunciation (izgovor), pos (vrsta riječi na bosanskom), translationBs (prijevod na bosanski), " +
                     "definitionEn (kratka definicija na engleskom), example (jedna rečenica upotrebe u kontekstu na engleskom)."
-            ).onSuccess {
+            Gemini.generateJson(prompt).onSuccess {
                 pron = it.optString("pronunciation"); pos = it.optString("pos"); tr = it.optString("translationBs")
                 def = it.optString("definitionEn"); ex = it.optString("example")
             }.onFailure { err = (it.message ?: "Greška") + " Možeš ručno popuniti polja." }
@@ -65,7 +84,7 @@ fun BooksScreen() {
                 Label("Trenutna knjiga", color = C.gold)
                 Gap(4)
                 Text(book.title, style = T.h2)
-                if (book.author.isNotBlank()) Text(book.author, style = T.small)
+                bookMeta(book).takeIf { it.isNotBlank() }?.let { Text(it, style = T.small) }
                 Gap(10)
                 Bar(if (book.totalPages == 0) 0f else book.currentPage.toFloat() / book.totalPages, C.gold)
                 Gap(6)
@@ -74,9 +93,11 @@ fun BooksScreen() {
                     Text("$wc riječi", style = T.small.copy(color = C.text2))
                 }
                 Gap(10)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GoldButton("Ažuriraj stranicu", Modifier.weight(1f), onClick = { showPage = true })
-                    GhostButton("Nova", onClick = { showAdd = true })
+                GoldButton("Ažuriraj stranicu", Modifier.fillMaxWidth(), onClick = { showPage = true })
+                Gap(8)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    GhostButton("Uredi knjigu", Modifier.weight(1f), onClick = { showEdit = true })
+                    GhostButton("Nova", Modifier.weight(1f), onClick = { showAdd = true })
                     IconButton(onClick = { confirmDel = true }) { Icon(Icons.Outlined.Delete, "Obriši knjigu", tint = C.danger) }
                 }
             }
@@ -88,16 +109,22 @@ fun BooksScreen() {
             Gap(16)
             Label("Rječnik")
             Gap(8)
+            ChipRow {
+                Chip("Engleska riječ", lang == "en", { lang = "en" })
+                Chip("Bosanska riječ", lang == "bs", { lang = "bs" })
+            }
+            Gap(8)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Field(query, { query = it }, "Unesi riječ", Modifier.weight(1f))
+                Field(query, { query = it }, if (lang == "bs") "Unesi bosansku riječ" else "Unesi riječ", Modifier.weight(1f))
                 GoldButton("Traži", enabled = query.isNotBlank() && !loading) {
-                    if (s.gemBook) lookup(query.trim())
-                    else { cardWord = query.trim(); pron = ""; pos = ""; tr = ""; def = ""; ex = ""; err = "Gemini za knjige je isključen. Popuni ručno." }
+                    if (s.gemBook) lookup(query.trim(), lang)
+                    else { cardWord = query.trim(); cardLang = lang; pron = ""; pos = ""; tr = ""; def = ""; ex = ""; err = "Gemini za knjige je isključen. Popuni ručno." }
                 }
             }
 
             if (cardWord != null) {
                 Gap(10)
+                val bsWord = cardLang == "bs"
                 AppCard {
                     Text(cardWord!!, style = T.title)
                     if (loading) {
@@ -105,10 +132,10 @@ fun BooksScreen() {
                     } else {
                         err?.let { Gap(6); Text(it, style = T.small.copy(color = C.danger)) }
                         Gap(8)
-                        Field(pron, { pron = it }, "Izgovor")
+                        Field(pron, { pron = it }, if (bsWord) "Naglasak / izgovor" else "Izgovor")
                         Gap(8); Field(pos, { pos = it }, "Vrsta riječi")
-                        Gap(8); Field(tr, { tr = it }, "Prijevod (bosanski)")
-                        Gap(8); Field(def, { def = it }, "Definicija (engleski)", singleLine = false, minLines = 2)
+                        Gap(8); Field(tr, { tr = it }, if (bsWord) "Objašnjenje (bosanski)" else "Prijevod (bosanski)", singleLine = false, minLines = if (bsWord) 2 else 1)
+                        Gap(8); Field(def, { def = it }, if (bsWord) "Prijevod (engleski)" else "Definicija (engleski)", singleLine = false, minLines = 2)
                         Gap(8); Field(ex, { ex = it }, "Upotreba u kontekstu", singleLine = false, minLines = 2)
                         Gap(12)
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -117,13 +144,13 @@ fun BooksScreen() {
                                     dao.insertWord(
                                         Word(
                                             bookId = book.id, word = cardWord!!, pronunciation = pron, pos = pos, translationBs = tr,
-                                            definitionEn = def, example = ex, page = book.currentPage, createdAt = System.currentTimeMillis()
+                                            definitionEn = def, example = ex, page = book.currentPage, createdAt = System.currentTimeMillis(), lang = cardLang
                                         )
                                     )
                                     cardWord = null; query = ""
                                 }
                             }
-                            if (s.gemBook) GhostButton("Ponovo generiši", Modifier.weight(1f), onClick = { lookup(cardWord!!) })
+                            if (s.gemBook) GhostButton("Ponovo generiši", Modifier.weight(1f), onClick = { lookup(cardWord!!, cardLang) })
                         }
                     }
                 }
@@ -139,9 +166,9 @@ fun BooksScreen() {
                     AppCard(Modifier.fillMaxWidth().padding(bottom = 8.dp), onClick = { open = !open }, padding = 14.dp) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(w.word, style = T.medium, modifier = Modifier.weight(1f))
-                            Text("str. ${w.page}", style = T.small)
+                            Text((if (w.lang == "bs") "bs · " else "") + "str. ${w.page}", style = T.small)
                         }
-                        if (w.translationBs.isNotBlank()) Text(w.translationBs, style = T.body.copy(color = C.gold))
+                        if (w.translationBs.isNotBlank()) Text(w.translationBs, style = T.body.copy(color = C.gold), maxLines = if (open) Int.MAX_VALUE else 2)
                         if (open) {
                             if (w.pronunciation.isNotBlank() || w.pos.isNotBlank()) Text(listOf(w.pronunciation, w.pos).filter { it.isNotBlank() }.joinToString(" · "), style = T.small, modifier = Modifier.padding(top = 4.dp))
                             if (w.definitionEn.isNotBlank()) Text(w.definitionEn, style = T.body.copy(color = C.text2), modifier = Modifier.padding(top = 6.dp))
@@ -154,8 +181,11 @@ fun BooksScreen() {
         }
     }
 
-    if (showAdd) AddBookDialog(onDismiss = { showAdd = false }) { b ->
+    if (showAdd) BookDialog(null, onDismiss = { showAdd = false }) { b ->
         scope.launch { val id = dao.insertBook(b); Graph.prefs.set(K.currentBookId, id) }
+    }
+    if (showEdit && book != null) BookDialog(book, onDismiss = { showEdit = false }) { b ->
+        scope.launch { dao.insertBook(b) }
     }
     if (showPage && book != null) InputDialog("Na kojoj si stranici?", "Stranica", book.currentPage.toString(), KeyboardType.Number, onOk = {
         val p = (it.toIntOrNull() ?: book.currentPage).coerceIn(0, if (book.totalPages > 0) book.totalPages else Int.MAX_VALUE)
@@ -168,24 +198,48 @@ fun BooksScreen() {
     if (confirmDel && book != null) Confirm("Obrisati knjigu?", book.title, onOk = { scope.launch { dao.deleteBook(book) } }, onDismiss = { confirmDel = false })
 }
 
+/** Dodavanje (initial == null) ili uređivanje knjige; uređivanje traži potvrdu prije spremanja. */
 @Composable
-private fun AddBookDialog(onDismiss: () -> Unit, onOk: (Book) -> Unit) {
-    var t by remember { mutableStateOf("") }
-    var a by remember { mutableStateOf("") }
-    var p by remember { mutableStateOf("") }
+private fun BookDialog(initial: Book?, onDismiss: () -> Unit, onOk: (Book) -> Unit) {
+    var t by remember { mutableStateOf(initial?.title ?: "") }
+    var a by remember { mutableStateOf(initial?.author ?: "") }
+    var p by remember { mutableStateOf(initial?.totalPages?.takeIf { it > 0 }?.toString() ?: "") }
+    var y by remember { mutableStateOf(initial?.year?.takeIf { it > 0 }?.toString() ?: "") }
+    var pub by remember { mutableStateOf(initial?.publisher ?: "") }
+    var g by remember { mutableStateOf(initial?.genre ?: "") }
+    var l by remember { mutableStateOf(initial?.language ?: "") }
+    var confirm by remember { mutableStateOf(false) }
+
+    fun build() = (initial ?: Book()).copy(
+        title = t.trim(), author = a.trim(), totalPages = p.toIntOrNull() ?: 0, year = y.toIntOrNull() ?: 0,
+        publisher = pub.trim(), genre = g.trim(), language = l.trim()
+    )
+    fun finish() { onOk(build()); onDismiss() }
+
     AlertDialog(
-        onDismissRequest = onDismiss, containerColor = C.surface, title = { Text("Nova knjiga", style = T.h2) },
+        onDismissRequest = onDismiss, containerColor = C.surface,
+        title = { Text(if (initial == null) "Nova knjiga" else "Uredi knjigu", style = T.h2) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Field(t, { t = it }, "Naslov"); Field(a, { a = it }, "Autor")
-                Field(p, { p = it.filter(Char::isDigit) }, "Broj stranica", keyboard = KeyboardType.Number)
+                Field(p, { p = it.filter(Char::isDigit).take(5) }, "Broj stranica", keyboard = KeyboardType.Number)
+                Field(y, { y = it.filter(Char::isDigit).take(4) }, "Godina izdanja", keyboard = KeyboardType.Number)
+                Field(pub, { pub = it }, "Izdavač")
+                Label("Jezik")
+                ChipRow { LANGS.forEach { Chip(it, l == it, { l = it }) } }
+                Field(l, { l = it }, "Jezik (ili upiši drugi)")
+                Label("Žanr")
+                ChipRow { GENRES.forEach { Chip(it, g == it, { g = it }) } }
+                Field(g, { g = it }, "Žanr (ili upiši drugi)")
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                if (t.isNotBlank()) { onOk(Book(title = t.trim(), author = a.trim(), totalPages = p.toIntOrNull() ?: 0)); onDismiss() }
-            }) { Text("Sačuvaj", color = C.gold) }
+            TextButton(onClick = { if (t.isNotBlank()) { if (initial == null) finish() else confirm = true } }) { Text("Sačuvaj", color = C.gold) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Odustani", color = C.muted) } }
+    )
+    if (confirm) Confirm(
+        "Sačuvati izmjene?", "Jesi li siguran da želiš sačuvati izmjene knjige „${t.trim()}“?",
+        ok = "Da, sačuvaj", okColor = C.gold, onOk = { finish() }, onDismiss = { confirm = false }
     )
 }

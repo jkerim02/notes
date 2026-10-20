@@ -42,7 +42,11 @@ data class Book(
     var author: String = "",
     var totalPages: Int = 0,
     var currentPage: Int = 0,
-    var finishedDay: Long = 0
+    var finishedDay: Long = 0,
+    var year: Int = 0,
+    var language: String = "",
+    var genre: String = "",
+    var publisher: String = ""
 )
 
 @Entity(tableName = "reading_log")
@@ -65,7 +69,8 @@ data class Word(
     var example: String = "",
     var page: Int = 0,
     var createdAt: Long = 0,
-    var reviewCount: Int = 0
+    var reviewCount: Int = 0,
+    var lang: String = "en" // jezik riječi: "en" ili "bs"
 )
 
 @Entity(tableName = "category")
@@ -194,7 +199,7 @@ interface WalletDao {
 @Database(
     entities = [VakatDay::class, PrayerLog::class, Reminder::class, ReminderLog::class, Note::class, Book::class,
         ReadingLog::class, Word::class, Category::class, Txn::class, Goal::class, PriceEntry::class],
-    version = 3, exportSchema = false
+    version = 4, exportSchema = false
 )
 abstract class AppDb : RoomDatabase() {
     abstract fun prayer(): PrayerDao

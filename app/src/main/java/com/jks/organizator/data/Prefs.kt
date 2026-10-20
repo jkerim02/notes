@@ -89,6 +89,16 @@ val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
     }
 }
 
+val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE book ADD COLUMN year INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE book ADD COLUMN language TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE book ADD COLUMN genre TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE book ADD COLUMN publisher TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE word ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'")
+    }
+}
+
 object Graph {
     lateinit var db: AppDb
     lateinit var prefs: Prefs
@@ -96,7 +106,7 @@ object Graph {
     fun init(ctx: Context) {
         if (::db.isInitialized) return
         app = ctx.applicationContext
-        db = Room.databaseBuilder(app, AppDb::class.java, "organizator.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
+        db = Room.databaseBuilder(app, AppDb::class.java, "organizator.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
         prefs = Prefs(app)
     }
 }
