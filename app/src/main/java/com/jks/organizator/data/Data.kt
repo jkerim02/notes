@@ -131,6 +131,7 @@ interface ReminderDao {
     @Delete suspend fun delete(r: Reminder)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun setLog(l: ReminderLog)
     @Query("SELECT * FROM reminder_log WHERE reminderId=:id AND date=:d") suspend fun log(id: Long, d: String): ReminderLog?
+    @Query("DELETE FROM reminder_log WHERE reminderId=:id") suspend fun deleteLogsFor(id: Long)
     @Query("DELETE FROM reminder_log WHERE reminderId=:id AND date=:d") suspend fun deleteLog(id: Long, d: String)
     @Query("SELECT * FROM reminder_log WHERE date BETWEEN :a AND :b") suspend fun logs(a: String, b: String): List<ReminderLog>
     @Query("SELECT * FROM reminder_log") suspend fun allLogs(): List<ReminderLog>

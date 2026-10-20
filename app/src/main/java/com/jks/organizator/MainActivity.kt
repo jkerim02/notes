@@ -136,7 +136,10 @@ private fun AppRoot(startRoute: String?, consumed: () -> Unit) {
                 val a = it.arguments!!
                 ReportScreen(a.getString("kind")!!, a.getString("from")!!, a.getString("to")!!, a.getInt("mask")) { nav.popBackStack() }
             }
-            composable("reminders") { RemindersScreen() }
+            composable("reminders") { RemindersScreen(onOpenTrack = { nav.navigate("track/$it") }) }
+            composable("track/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
+                TrackDetailScreen(it.arguments!!.getLong("id")) { nav.popBackStack() }
+            }
             composable("notes") { NotesScreen { id -> nav.navigate("note/$id") } }
             composable("note/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                 NoteEditorScreen(it.arguments!!.getLong("id")) { nav.popBackStack() }

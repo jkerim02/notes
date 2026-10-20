@@ -99,7 +99,7 @@ suspend fun buildReport(from: LocalDate, to: LocalDate): Report = withContext(Di
     val cats = db.wallet().categories().associate { it.id to it.name }
     val big = spentL.maxByOrNull { it.amount }?.let { "${money(it.amount)} KM · ${cats[it.categoryId] ?: "Ostalo"}" + if (it.place.isNotBlank()) " (${it.place})" else "" }
 
-    // praćene navike (Kuran, knjige, učenje...)
+    // praćene navike (Kur'an, knjige, učenje...)
     val trackedLines = mutableListOf<String>()
     val remLogs = db.reminders().logs(fk, ek)
     for (r in rems.filter { it.track.isNotBlank() }) {

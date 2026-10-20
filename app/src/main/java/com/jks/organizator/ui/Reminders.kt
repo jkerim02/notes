@@ -25,7 +25,7 @@ import java.time.LocalDate
 private val FILTERS = listOf("Sve" to "", "Dnevno" to "daily", "Sedmično" to "weekly", "Mjesečno" to "monthly", "Godišnje" to "yearly", "Praćenje" to "track")
 
 @Composable
-fun RemindersScreen() {
+fun RemindersScreen(onOpenTrack: (Long) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val list by Graph.db.reminders().observeAll().collectAsState(emptyList())
@@ -47,7 +47,7 @@ fun RemindersScreen() {
         Gap(12)
 
         if (filter == "track") {
-            TrackingView(list.filter { it.track.isNotBlank() }, logs, onLog = { logging = it })
+            TrackingView(list.filter { it.track.isNotBlank() }, logs, onLog = { logging = it }, onOpen = onOpenTrack)
         } else {
             val shown = list.filter { filter.isEmpty() || it.repeat == filter }
             if (shown.isEmpty()) Text("Nema podsjetnika. Dodaj prvi dugmetom +.", style = T.small, modifier = Modifier.padding(top = 24.dp))
@@ -59,7 +59,7 @@ fun RemindersScreen() {
                         g.forEach { r ->
                             val todayLog = logs.firstOrNull { it.reminderId == r.id && it.date == today.toString() && it.done }
                             Row(
-                                Modifier.fillMaxWidth().heightIn(min = 60.dp).clickable { editing = r }.padding(horizontal = 12.dp),
+                                Modifier.fillMaxWidth().heightIn(min = 60.dp).clickable { if (r.track.isNotBlank()) onOpenTrack(r.id) else editing = r }.padding(horizontal = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(Modifier.weight(1f)) {
@@ -89,20 +89,14 @@ fun RemindersScreen() {
     }
 
     editing?.let { r ->
-        ReminderEditor(r, onDismiss = { editing = null }, onSave = { n ->
-            scope.launch {
-                val id = Graph.db.reminders().insert(n)
-                Notifier.scheduleReminder(ctx, n.copy(id = id))
-            }
-        }, onDelete = {
-            scope.launch { Notifier.cancelReminder(ctx, r); Graph.db.reminders().delete(r) }
-        })
+        ReminderEditor(r, onDismiss = { editing = null }, onSave = { n -> scope.launch { saveReminder(ctx, n) } },
+            onDelete = { scope.launch { deleteReminder(ctx, r) } })
     }
-    logging?.let { r -> LogDialog(r, onDismiss = { logging = null }) }
+    logging?.let { r -> LogDialog(r, LocalDate.now(), onDismiss = { logging = null }) }
 }
 
 @Composable
-private fun TrackingView(tracked: List<Reminder>, logs: List<ReminderLog>, onLog: (Reminder) -> Unit) {
+private fun TrackingView(tracked: List<Reminder>, logs: List<ReminderLog>, onLog: (Reminder) -> Unit, onOpen: (Long) -> Unit) {
     var period by remember { mutableStateOf("week") }
     val today = LocalDate.now()
     val from = when (period) {
@@ -120,7 +114,7 @@ private fun TrackingView(tracked: List<Reminder>, logs: List<ReminderLog>, onLog
         AppCard {
             Text("Još nema praćenih navika", style = T.h2)
             Gap(4)
-            Text("Dodaj podsjetnik i u polju „Vrsta“ izaberi Kuran, Knjiga ili Učenje. Onda možeš bilježiti koliko si uradio i vidjeti statistiku ovdje.", style = T.small)
+            Text("Dodaj podsjetnik i u polju „Vrsta“ izaberi Kur'an, Knjiga ili Učenje. Onda možeš bilježiti koliko si uradio i vidjeti statistiku ovdje.", style = T.small)
         }
         return
     }
@@ -128,7 +122,7 @@ private fun TrackingView(tracked: List<Reminder>, logs: List<ReminderLog>, onLog
         val rl = logs.filter { it.reminderId == r.id }
         val st = Track.stats(r, rl, from, today)
         val doneToday = rl.any { it.done && it.date == today.toString() }
-        AppCard(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+        AppCard(Modifier.fillMaxWidth().padding(bottom = 12.dp), onClick = { onOpen(r.id) }) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(r.track, style = T.h2)
@@ -145,7 +139,7 @@ private fun TrackingView(tracked: List<Reminder>, logs: List<ReminderLog>, onLog
             if (st.expected > 0) { Gap(8); Bar(st.daysDone.toFloat() / st.expected, C.teal) }
             if (r.unit.isNotBlank() && st.daysDone > 0) Text("prosjek ${st.total / st.daysDone} ${Track.unitName(r.unit)} po danu", style = T.small, modifier = Modifier.padding(top = 6.dp))
             Gap(10)
-            Label("Zadnjih 14 dana")
+            Label("Zadnjih 14 dana · dodirni za cijelu historiju")
             Gap(6)
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 (13 downTo 0).forEach { back ->
@@ -163,9 +157,9 @@ private fun TrackingView(tracked: List<Reminder>, logs: List<ReminderLog>, onLog
 }
 
 @Composable
-private fun LogDialog(r: Reminder, onDismiss: () -> Unit) {
+fun LogDialog(r: Reminder, initial: LocalDate, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var date by remember { mutableStateOf(LocalDate.now()) }
+    var date by remember { mutableStateOf(initial) }
     var amount by remember { mutableStateOf("") }
     var hadLog by remember { mutableStateOf(false) }
     LaunchedEffect(date) {
@@ -202,7 +196,7 @@ private fun LogDialog(r: Reminder, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun ReminderEditor(r: Reminder, onDismiss: () -> Unit, onSave: (Reminder) -> Unit, onDelete: () -> Unit) {
+fun ReminderEditor(r: Reminder, onDismiss: () -> Unit, onSave: (Reminder) -> Unit, onDelete: () -> Unit) {
     var title by remember { mutableStateOf(r.title) }
     var time by remember { mutableStateOf(parseTime(r.time)) }
     var repeat by remember { mutableStateOf(r.repeat) }
@@ -218,6 +212,8 @@ private fun ReminderEditor(r: Reminder, onDismiss: () -> Unit, onSave: (Reminder
     var custom by remember { mutableStateOf(r.track.isNotBlank() && r.track !in Track.PRESETS) }
     var unit by remember { mutableStateOf(r.unit) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var logCount by remember { mutableStateOf(0) }
+    LaunchedEffect(r.id) { if (r.id != 0L) logCount = Graph.db.reminders().allLogs().count { it.reminderId == r.id && it.done } }
 
     AlertDialog(
         onDismissRequest = onDismiss, containerColor = C.surface,
@@ -282,5 +278,36 @@ private fun ReminderEditor(r: Reminder, onDismiss: () -> Unit, onSave: (Reminder
             }
         }
     )
-    if (confirmDelete) Confirm("Obrisati podsjetnik?", r.title, onOk = { onDelete(); onDismiss() }, onDismiss = { confirmDelete = false })
+    if (confirmDelete) {
+        if (r.track.isBlank()) Confirm("Obrisati podsjetnik?", r.title, onOk = { onDelete(); onDismiss() }, onDismiss = { confirmDelete = false })
+        else TripleConfirm(r.track, logCount, onDeleted = { onDelete(); onDismiss() }, onDismiss = { confirmDelete = false })
+    }
+}
+
+/** Praćena navika se briše tek nakon tri uzastopna potvrđivanja. */
+@Composable
+private fun TripleConfirm(name: String, logCount: Int, onDeleted: () -> Unit, onDismiss: () -> Unit) {
+    var step by remember { mutableStateOf(1) }
+    val (title, text, ok) = when (step) {
+        1 -> Triple("Obrisati praćenje? (1/3)", "Jesi li siguran da želiš obrisati „$name“? Briše se i cijela historija.", "Da, nastavi")
+        2 -> Triple("Zaista? (2/3)", "Trajno će nestati cijela historija ($logCount dana sa zapisom). Jesi li zaista siguran?", "Da, siguran sam")
+        else -> Triple("Zadnje upozorenje (3/3)", "Ovo se ne može vratiti. Obrisati „$name“ zauvijek?", "Da, obriši zauvijek")
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss, containerColor = C.surface,
+        title = { Text(title, style = T.h2) }, text = { Text(text, style = T.body) },
+        confirmButton = { TextButton(onClick = { if (step < 3) step++ else onDeleted() }) { Text(ok, color = C.danger) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Odustani", color = C.muted) } }
+    )
+}
+
+suspend fun saveReminder(ctx: android.content.Context, n: Reminder) {
+    val id = Graph.db.reminders().insert(n)
+    Notifier.scheduleReminder(ctx, n.copy(id = if (n.id == 0L) id else n.id))
+}
+
+suspend fun deleteReminder(ctx: android.content.Context, r: Reminder) {
+    Notifier.cancelReminder(ctx, r)
+    if (r.track.isNotBlank()) Graph.db.reminders().deleteLogsFor(r.id)
+    Graph.db.reminders().delete(r)
 }

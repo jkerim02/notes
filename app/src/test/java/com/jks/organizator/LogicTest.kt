@@ -126,4 +126,12 @@ class LogicTest {
         val logs = listOf(1L, 2L).map { ReminderLog(1, today.minusDays(it).toString(), true) }
         assertEquals(2, com.jks.organizator.notif.Track.stats(r, logs, today.minusDays(6), today, today).streak)
     }
+
+    @Test fun trackBestStreak() {
+        val today = LocalDate.of(2026, 10, 21)
+        val r = Reminder(id = 1, repeat = "daily", track = "Kur'an", createdDay = today.minusDays(30).toEpochDay())
+        val days = listOf(20L, 19L, 18L, 17L, 10L, 9L, 0L) // 4 u nizu, 2 u nizu, danas
+        val logs = days.map { ReminderLog(1, today.minusDays(it).toString(), true) }
+        assertEquals(4, com.jks.organizator.notif.Track.bestStreak(r, logs, today.minusDays(30), today))
+    }
 }
