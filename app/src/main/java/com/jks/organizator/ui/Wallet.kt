@@ -77,6 +77,7 @@ fun WalletScreen(onNew: () -> Unit, onEdit: (Long) -> Unit, onSavings: () -> Uni
     var err by remember { mutableStateOf<String?>(null) }
     var del by remember { mutableStateOf<Txn?>(null) }
     var menu by remember { mutableStateOf<Txn?>(null) }
+    var confirmEdit by remember { mutableStateOf<Txn?>(null) }
     var filter by remember { mutableStateOf("") }
 
     Page(
@@ -186,8 +187,14 @@ fun WalletScreen(onNew: () -> Unit, onEdit: (Long) -> Unit, onSavings: () -> Uni
         AlertDialog(
             onDismissRequest = { menu = null }, containerColor = C.surface,
             title = { Text("${money(t.amount)} KM", style = T.h2) },
-            confirmButton = { TextButton(onClick = { menu = null; onEdit(t.id) }) { Text("Uredi", color = C.gold) } },
+            confirmButton = { TextButton(onClick = { menu = null; confirmEdit = t }) { Text("Uredi", color = C.gold) } },
             dismissButton = { Row { TextButton(onClick = { del = t; menu = null }) { Text("Obriši", color = C.danger) }; TextButton(onClick = { menu = null }) { Text("Zatvori", color = C.muted) } } }
+        )
+    }
+    confirmEdit?.let { t ->
+        Confirm(
+            "Urediti unos?", "Jesi li siguran da želiš urediti ovaj unos (${money(t.amount)} KM) ili si slučajno kliknuo?",
+            ok = "Da, uredi", okColor = C.gold, onOk = { onEdit(t.id) }, onDismiss = { confirmEdit = null }
         )
     }
     del?.let { t -> Confirm("Obrisati unos?", "${money(t.amount)} KM", onOk = { scope.launch { dao.deleteTxn(t) } }, onDismiss = { del = null }) }
@@ -212,6 +219,7 @@ fun NewEntryScreen(id: Long, onBack: () -> Unit) {
     var catId by remember { mutableStateOf(0L) }
     var goalId by remember { mutableStateOf(0L) }
     var newCat by remember { mutableStateOf(false) }
+    var confirmSave by remember { mutableStateOf(false) }
     var forMonth by remember { mutableStateOf<YearMonth?>(null) } // null = mjesec datuma
     var loaded by remember { mutableStateOf(id == 0L) }
     val cats by dao.observeCategories(if (kind == "earned") "earned" else "spent").collectAsState(emptyList())
@@ -238,7 +246,16 @@ fun NewEntryScreen(id: Long, onBack: () -> Unit) {
         Gap(14)
         Field(amount, { amount = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, "Iznos", keyboard = KeyboardType.Decimal, suffix = "KM")
         Gap(10)
-        DateField("Datum (kad se desilo)", date, { date = it })
+        Label("Kad se desilo")
+        Gap(6)
+        ChipRow {
+            val t0 = LocalDate.now()
+            Chip("Danas", date == t0, { date = t0 })
+            Chip("Jučer", date == t0.minusDays(1), { date = t0.minusDays(1) })
+            Chip("Prije 2 dana", date == t0.minusDays(2), { date = t0.minusDays(2) })
+        }
+        Gap(8)
+        DateField("Datum (ili izaberi drugi)", date, { date = it })
         Gap(10)
         val effYm = forMonth ?: YearMonth.from(date)
         AppCard(color = C.surface2, padding = 12.dp) {
@@ -271,12 +288,20 @@ fun NewEntryScreen(id: Long, onBack: () -> Unit) {
             }
         }
         Gap(20)
-        GoldButton("Sačuvaj", Modifier.fillMaxWidth(), enabled = ok && loaded) {
+        GoldButton("Sačuvaj", Modifier.fillMaxWidth(), enabled = ok && loaded) { confirmSave = true }
+    }
+    if (confirmSave) {
+        val kindName = when (kind) { "spent" -> "potrošeno"; "earned" -> "zarađeno"; else -> "odvojeno" }
+        Confirm(
+            if (id == 0L) "Sačuvati unos?" else "Sačuvati izmjene?",
+            "Jesi li siguran da želiš sačuvati: $kindName ${money(parseAmount(amount))} KM, datum ${date.dayOfMonth}.${date.monthValue}.${date.year}., " +
+                "računa se za ${MONTHS_BS[(forMonth ?: YearMonth.from(date)).monthValue - 1]}?",
+            ok = "Da, sačuvaj", okColor = C.gold, onDismiss = { confirmSave = false }, onOk = {
             scope.launch {
                 dao.insertTxn(Txn(id = id, forMonth = forMonth?.takeIf { it != YearMonth.from(date) }?.toString() ?: "", kind = kind, amount = parseAmount(amount), categoryId = if (kind == "saved") 0 else catId, goalId = if (kind == "saved") goalId else 0, date = date.key(), place = place.trim()))
                 onBack()
             }
-        }
+        })
     }
     if (newCat) InputDialog(if (kind == "spent") "Nova kategorija" else "Novi izvor", "Naziv", onOk = {
         scope.launch { catId = dao.insertCategory(Category(kind = if (kind == "earned") "earned" else "spent", name = it)) }
@@ -411,6 +436,7 @@ fun GoalScreen(id: Long, onBack: () -> Unit) {
         var dAmt by remember { mutableStateOf("") }
         var dDate by remember { mutableStateOf(LocalDate.now()) }
         var delDep by remember { mutableStateOf<Txn?>(null) }
+        var confirmDep by remember { mutableStateOf(false) }
         AppCard {
             Label("Dodaj uplatu")
             Gap(8)
@@ -418,10 +444,14 @@ fun GoalScreen(id: Long, onBack: () -> Unit) {
             Gap(8)
             DateField("Datum (danas, jučer, ...)", dDate, { dDate = it })
             Gap(10)
-            GoldButton("Dodaj", Modifier.fillMaxWidth(), enabled = parseAmount(dAmt) > 0) {
-                scope.launch { dao.insertTxn(Txn(kind = "saved", amount = parseAmount(dAmt), goalId = g.id, date = dDate.toString())) }
-                dAmt = ""
-            }
+            GoldButton("Dodaj", Modifier.fillMaxWidth(), enabled = parseAmount(dAmt) > 0) { confirmDep = true }
+            if (confirmDep) Confirm(
+                "Dodati uplatu?", "Jesi li siguran da želiš sačuvati uplatu ${money(parseAmount(dAmt))} KM za ${dDate.dayOfMonth}.${dDate.monthValue}.${dDate.year}.?",
+                ok = "Da, sačuvaj", okColor = C.gold, onDismiss = { confirmDep = false }, onOk = {
+                    scope.launch { dao.insertTxn(Txn(kind = "saved", amount = parseAmount(dAmt), goalId = g.id, date = dDate.toString())) }
+                    dAmt = ""
+                }
+            )
             if (deps.isNotEmpty()) {
                 Gap(14)
                 Label("Uplate")

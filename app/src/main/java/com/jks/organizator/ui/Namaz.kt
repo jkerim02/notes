@@ -57,6 +57,7 @@ fun NamazScreen(onProfile: () -> Unit, onMonthly: () -> Unit) {
     val day by dao.observeDay(date.key(), s.cityId).collectAsState(null)
     val tomorrow by dao.observeDay(date.plusDays(1).key(), s.cityId).collectAsState(null)
     var back by remember { mutableStateOf(0) }
+    var pendingToggle by remember { mutableStateOf<Int?>(null) }
     val selDate = date.minusDays(back.toLong())
     val selDay by dao.observeDay(selDate.key(), s.cityId).collectAsState(null)
     val logs by dao.observeLogs(selDate.key(), selDate.key()).collectAsState(emptyList())
@@ -113,7 +114,7 @@ fun NamazScreen(onProfile: () -> Unit, onMonthly: () -> Unit) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(start = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(VAKATS[i], style = T.body, modifier = Modifier.weight(1f))
                         if (st != null) Text(fmtTime(st[i]), style = T.medium.copy(color = C.text2))
-                        if (isFarz(i)) Circle(i in doneSet, false) { scope.launch { dao.setLog(PrayerLog(selDate.key(), i, i !in doneSet)) } }
+                        if (isFarz(i)) Circle(i in doneSet, false) { pendingToggle = i }
                         else Spacer(Modifier.width(44.dp))
                     }
                     if (i < 5) Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(C.line))
@@ -121,6 +122,14 @@ fun NamazScreen(onProfile: () -> Unit, onMonthly: () -> Unit) {
             }
             Gap(8)
             Text("${doneSet.count { isFarz(it) }} od 5 klanjano. Možeš mijenjati zadnja 3 dana.", style = T.small)
+            pendingToggle?.let { v ->
+                Confirm(
+                    "Promijeniti prošli dan?",
+                    "Jesi li siguran da želiš ${if (v in doneSet) "skinuti oznaku sa" else "označiti"} ${VAKATS[v]} za ${selDate.bs()} ili si slučajno kliknuo?",
+                    ok = "Da, promijeni", okColor = C.gold, onDismiss = { pendingToggle = null },
+                    onOk = { scope.launch { dao.setLog(PrayerLog(selDate.key(), v, v !in doneSet)) } }
+                )
+            }
         } else if (times == null) {
             AppCard {
                 Text("Vremena namaza nisu učitana", style = T.h2)

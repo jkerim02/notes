@@ -17,6 +17,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.jks.organizator.data.*
 import com.jks.organizator.notif.Rules
+import com.jks.organizator.notif.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -35,7 +36,8 @@ data class Report(
     val pages: Int, val newWords: Int, val finishedBooks: Int, val readDays: Int, val hasBooks: Boolean,
     val remDone: Int, val remTotal: Int,
     val earned: Double, val spent: Double, val saved: Double, val biggest: String?,
-    val missed: List<String>, val good: List<String>
+    val missed: List<String>, val good: List<String>,
+    val tracked: List<String> = emptyList()
 ) {
     val left get() = earned - spent - saved
 }
@@ -97,6 +99,14 @@ suspend fun buildReport(from: LocalDate, to: LocalDate): Report = withContext(Di
     val cats = db.wallet().categories().associate { it.id to it.name }
     val big = spentL.maxByOrNull { it.amount }?.let { "${money(it.amount)} KM · ${cats[it.categoryId] ?: "Ostalo"}" + if (it.place.isNotBlank()) " (${it.place})" else "" }
 
+    // praćene navike (Kuran, knjige, učenje...)
+    val trackedLines = mutableListOf<String>()
+    val remLogs = db.reminders().logs(fk, ek)
+    for (r in rems.filter { it.track.isNotBlank() }) {
+        val st = Track.stats(r, remLogs.filter { it.reminderId == r.id }, from, end)
+        trackedLines.add("${r.track}: ${st.daysDone} od ${st.expected} dana" + if (r.unit.isNotBlank() && st.total > 0) ", ukupno ${st.total} ${Track.unitName(r.unit)}" else "")
+    }
+
     // promaklo / dobro
     val missed = mutableListOf<String>()
     val good = mutableListOf<String>()
@@ -127,7 +137,7 @@ suspend fun buildReport(from: LocalDate, to: LocalDate): Report = withContext(Di
         if (earned > 0 && spent + saved <= earned) good.add("Potrošnja unutar zarade, ostalo ${money(earned - spent - saved)} KM")
         if (earned > 0 && spent > earned) missed.add("Potrošeno više nego zarađeno (${money(spent - earned)} KM)")
     }
-    Report(from, end, elapsed, logs.size, prayerTotal, perVakat, monthly, pages, words, finished, readDays, books.isNotEmpty(), remDone, remTotal, earned, spent, saved, big, missed, good)
+    Report(from, end, elapsed, logs.size, prayerTotal, perVakat, monthly, pages, words, finished, readDays, books.isNotEmpty(), remDone, remTotal, earned, spent, saved, big, missed, good, trackedLines)
 }
 
 fun reportLines(r: Report, mask: Int): List<Pair<String, Boolean>> {
@@ -144,7 +154,7 @@ fun reportLines(r: Report, mask: Int): List<Pair<String, Boolean>> {
         l += "Knjige i riječi" to true
         l += "Pročitano stranica: ${r.pages} · nove riječi: ${r.newWords} · završene knjige: ${r.finishedBooks} · dani čitanja: ${r.readDays}" to false
     }
-    if (mask and M_REMINDERS != 0) { l += "Podsjetnici" to true; l += "Urađeno ${r.remDone} od ${r.remTotal}" to false }
+    if (mask and M_REMINDERS != 0) { l += "Podsjetnici" to true; l += "Urađeno ${r.remDone} od ${r.remTotal}" to false; r.tracked.forEach { l += "  $it" to false } }
     if (mask and M_WALLET != 0) {
         l += "Novčanik" to true
         l += "Zarađeno ${money(r.earned)} KM · potrošeno ${money(r.spent)} KM · odvojeno ${money(r.saved)} KM · ostalo ${money(r.left)} KM" to false
@@ -275,6 +285,7 @@ fun ReportScreen(kind: String, fromArg: String, toArg: String, mask: Int, onBack
                     Label("Podsjetnici"); Gap(4)
                     Text("${r.remDone} od ${r.remTotal} urađeno", style = T.h2)
                     Gap(6); Bar(if (r.remTotal == 0) 0f else r.remDone.toFloat() / r.remTotal, C.gold)
+                    r.tracked.forEach { Text(it, style = T.small.copy(color = C.text2), modifier = Modifier.padding(top = 6.dp)) }
                 }
                 Gap(12)
             }

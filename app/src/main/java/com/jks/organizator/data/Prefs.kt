@@ -81,6 +81,14 @@ val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
     }
 }
 
+val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE reminder ADD COLUMN track TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE reminder ADD COLUMN unit TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE reminder_log ADD COLUMN amount INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
 object Graph {
     lateinit var db: AppDb
     lateinit var prefs: Prefs
@@ -88,7 +96,7 @@ object Graph {
     fun init(ctx: Context) {
         if (::db.isInitialized) return
         app = ctx.applicationContext
-        db = Room.databaseBuilder(app, AppDb::class.java, "organizator.db").addMigrations(MIGRATION_1_2).build()
+        db = Room.databaseBuilder(app, AppDb::class.java, "organizator.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
         prefs = Prefs(app)
     }
 }

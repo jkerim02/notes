@@ -230,7 +230,7 @@ fun ProfileScreen(onBack: () -> Unit, onReport: (String, String, String, Int) ->
 
         Gap(8)
         Text("Product by JKs", style = T.small, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        Text("2026 · verzija 1.0.0", style = T.small, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Text("2026 · verzija 1.1.0", style = T.small, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
     if (about) AlertDialog(
         onDismissRequest = { about = false }, containerColor = C.surface, title = { Text("Lični organizator", style = T.h2) },

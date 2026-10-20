@@ -222,11 +222,11 @@ private fun PickerBox(label: String, value: String, modifier: Modifier, onClick:
 }
 
 @Composable
-fun Confirm(title: String, text: String, ok: String = "Obriši", onOk: () -> Unit, onDismiss: () -> Unit) {
+fun Confirm(title: String, text: String, ok: String = "Obriši", okColor: Color = C.danger, onOk: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss, containerColor = C.surface,
         title = { Text(title, style = T.h2) }, text = { Text(text, style = T.body) },
-        confirmButton = { TextButton(onClick = { onOk(); onDismiss() }) { Text(ok, color = C.danger) } },
+        confirmButton = { TextButton(onClick = { onOk(); onDismiss() }) { Text(ok, color = okColor) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Odustani", color = C.muted) } }
     )
 }

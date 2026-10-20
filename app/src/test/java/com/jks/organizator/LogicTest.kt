@@ -108,4 +108,22 @@ class LogicTest {
         assertEquals(java.time.YearMonth.of(2026, 11), t.effMonth())
         assertEquals("2026-11-05", t.effDate())
     }
+
+    @Test fun trackStatsAndStreak() {
+        val today = LocalDate.of(2026, 10, 21)
+        val r = Reminder(id = 1, repeat = "daily", track = "Kuran", unit = "min", createdDay = today.minusDays(30).toEpochDay())
+        val logs = listOf(0L, 1L, 2L, 4L).map { ReminderLog(1, today.minusDays(it).toString(), true, 10) }
+        val st = com.jks.organizator.notif.Track.stats(r, logs, today.minusDays(6), today, today)
+        assertEquals(4, st.daysDone)
+        assertEquals(7, st.expected)
+        assertEquals(40, st.total)
+        assertEquals(3, st.streak)
+    }
+
+    @Test fun trackStreakIgnoresUnfinishedToday() {
+        val today = LocalDate.of(2026, 10, 21)
+        val r = Reminder(id = 1, repeat = "daily", track = "Knjiga", createdDay = today.minusDays(30).toEpochDay())
+        val logs = listOf(1L, 2L).map { ReminderLog(1, today.minusDays(it).toString(), true) }
+        assertEquals(2, com.jks.organizator.notif.Track.stats(r, logs, today.minusDays(6), today, today).streak)
+    }
 }

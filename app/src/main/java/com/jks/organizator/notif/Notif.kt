@@ -218,7 +218,7 @@ object Notifier {
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle(r.title).setContentText(Rules.describe(r))
             .setAutoCancel(true).setContentIntent(openApp(ctx, "reminders"))
-            .addAction(0, "Gotovo", alarmIntent(ctx, A_DONE, r.id, nid))
+            .addAction(0, if (r.track.isBlank()) "Gotovo" else "Jesam", alarmIntent(ctx, A_DONE, r.id, nid))
             .addAction(0, "Odgodi 10 min", alarmIntent(ctx, A_SNOOZE, r.id, nid + 100000))
             .build()
         if (canNotify(ctx)) try { NotificationManagerCompat.from(ctx).notify(nid, n) } catch (_: SecurityException) {}
@@ -276,7 +276,8 @@ class AlarmReceiver : BroadcastReceiver() {
                 Notifier.showReminder(ctx, r)
             }
             Notifier.A_DONE -> {
-                db.reminders().setLog(ReminderLog(id, LocalDate.now().key(), true))
+                val d = LocalDate.now().key()
+                db.reminders().setLog(ReminderLog(id, d, true, db.reminders().log(id, d)?.amount ?: 0))
                 NotificationManagerCompat.from(ctx).cancel(1000 + (id % 100000).toInt())
             }
             Notifier.A_SNOOZE -> Notifier.snooze(ctx, id)

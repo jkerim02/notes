@@ -17,11 +17,13 @@ data class Reminder(
     var repeat: String = "daily", // daily|weekly|monthly|yearly
     var dayRule: String = "",     // weekly: "1,3" (Pon=1), monthly: "15", yearly: "03-21"
     var enabled: Boolean = true,
-    var createdDay: Long = 0
+    var createdDay: Long = 0,
+    var track: String = "", // "" = obični podsjetnik, inače naziv praćene navike (Kuran, Knjiga, ...)
+    var unit: String = ""   // "" samo urađeno, "min" ili "str"
 )
 
 @Entity(tableName = "reminder_log", primaryKeys = ["reminderId", "date"])
-data class ReminderLog(var reminderId: Long = 0, var date: String = "", var done: Boolean = false)
+data class ReminderLog(var reminderId: Long = 0, var date: String = "", var done: Boolean = false, var amount: Int = 0)
 
 @Entity(tableName = "note")
 data class Note(
@@ -128,8 +130,11 @@ interface ReminderDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(r: Reminder): Long
     @Delete suspend fun delete(r: Reminder)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun setLog(l: ReminderLog)
+    @Query("SELECT * FROM reminder_log WHERE reminderId=:id AND date=:d") suspend fun log(id: Long, d: String): ReminderLog?
+    @Query("DELETE FROM reminder_log WHERE reminderId=:id AND date=:d") suspend fun deleteLog(id: Long, d: String)
     @Query("SELECT * FROM reminder_log WHERE date BETWEEN :a AND :b") suspend fun logs(a: String, b: String): List<ReminderLog>
     @Query("SELECT * FROM reminder_log") suspend fun allLogs(): List<ReminderLog>
+    @Query("SELECT * FROM reminder_log") fun observeLogs(): Flow<List<ReminderLog>>
     @Query("DELETE FROM reminder") suspend fun clear()
     @Query("DELETE FROM reminder_log") suspend fun clearLogs()
 }
@@ -188,7 +193,7 @@ interface WalletDao {
 @Database(
     entities = [VakatDay::class, PrayerLog::class, Reminder::class, ReminderLog::class, Note::class, Book::class,
         ReadingLog::class, Word::class, Category::class, Txn::class, Goal::class, PriceEntry::class],
-    version = 2, exportSchema = false
+    version = 3, exportSchema = false
 )
 abstract class AppDb : RoomDatabase() {
     abstract fun prayer(): PrayerDao
