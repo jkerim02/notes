@@ -10,3 +10,4 @@ Lični organizator.html
 *.jks
 scratch_*
 keystore.properties
+release/
