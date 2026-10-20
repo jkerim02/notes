@@ -75,6 +75,12 @@ class Prefs(private val ctx: Context) {
     fun setGeminiKey(k: String) { try { secrets.edit().putString("gemini", k.trim()).apply() } catch (_: Exception) {} }
 }
 
+val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE txn ADD COLUMN forMonth TEXT NOT NULL DEFAULT ''")
+    }
+}
+
 object Graph {
     lateinit var db: AppDb
     lateinit var prefs: Prefs
@@ -82,7 +88,7 @@ object Graph {
     fun init(ctx: Context) {
         if (::db.isInitialized) return
         app = ctx.applicationContext
-        db = Room.databaseBuilder(app, AppDb::class.java, "organizator.db").build()
+        db = Room.databaseBuilder(app, AppDb::class.java, "organizator.db").addMigrations(MIGRATION_1_2).build()
         prefs = Prefs(app)
     }
 }

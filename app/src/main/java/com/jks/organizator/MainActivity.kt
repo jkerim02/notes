@@ -142,8 +142,8 @@ private fun AppRoot(startRoute: String?, consumed: () -> Unit) {
                 NoteEditorScreen(it.arguments!!.getLong("id")) { nav.popBackStack() }
             }
             composable("books") { BooksScreen() }
-            composable("wallet") { WalletScreen(onNew = { nav.navigate("newEntry") }, onSavings = { nav.navigate("savings") }) }
-            composable("newEntry") { NewEntryScreen { nav.popBackStack() } }
+            composable("wallet") { WalletScreen(onNew = { nav.navigate("newEntry/0") }, onEdit = { nav.navigate("newEntry/$it") }, onSavings = { nav.navigate("savings") }) }
+            composable("newEntry/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { NewEntryScreen(it.arguments!!.getLong("id")) { nav.popBackStack() } }
             composable("savings") { SavingsScreen({ nav.popBackStack() }) { id -> nav.navigate("goal/$id") } }
             composable("goal/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                 GoalScreen(it.arguments!!.getLong("id")) { nav.popBackStack() }

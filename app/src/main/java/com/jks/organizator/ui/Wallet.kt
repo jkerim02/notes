@@ -4,6 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ChevronLeft
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,15 +54,16 @@ object Calc {
 }
 
 @Composable
-fun WalletScreen(onNew: () -> Unit, onSavings: () -> Unit) {
+fun WalletScreen(onNew: () -> Unit, onEdit: (Long) -> Unit, onSavings: () -> Unit) {
     val scope = rememberCoroutineScope()
     val dao = Graph.db.wallet()
     val txns by dao.observeTxns().collectAsState(emptyList())
     val cats by dao.observeAllCategories().collectAsState(emptyList())
     val goals by dao.observeGoals().collectAsState(emptyList())
     val s by Graph.prefs.flow.collectAsState(Settings())
-    val ym = YearMonth.now()
-    val month = txns.filter { runCatching { YearMonth.from(LocalDate.parse(it.date)) == ym }.getOrDefault(false) }
+    var ym by remember { mutableStateOf(YearMonth.now()) }
+    val isNow = ym == YearMonth.now()
+    val month = txns.filter { it.effMonth() == ym }
     val earned = month.filter { it.kind == "earned" }.sumOf { it.amount }
     val spent = month.filter { it.kind == "spent" }.sumOf { it.amount }
     val saved = month.filter { it.kind == "saved" }.sumOf { it.amount }
@@ -73,14 +76,21 @@ fun WalletScreen(onNew: () -> Unit, onSavings: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     var del by remember { mutableStateOf<Txn?>(null) }
+    var menu by remember { mutableStateOf<Txn?>(null) }
     var filter by remember { mutableStateOf("") }
 
     Page(
         title = "Novčanik",
         fab = { FloatingActionButton(onClick = onNew, containerColor = C.gold, contentColor = C.bg) { Icon(Icons.Outlined.Add, "Novi unos") } }
     ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { ym = ym.minusMonths(1) }) { Icon(Icons.Outlined.ChevronLeft, "Prethodni mjesec", tint = C.text) }
+            Text("${MONTHS_BS[ym.monthValue - 1].replaceFirstChar { it.uppercase() }} ${ym.year}", style = T.h2, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+            IconButton(onClick = { ym = ym.plusMonths(1) }) { Icon(Icons.Outlined.ChevronRight, "Sljedeći mjesec", tint = C.text) }
+        }
+        Gap(8)
         AppCard(border = C.gold, color = C.surface2) {
-            Label("Ostalo ovaj mjesec", color = C.gold)
+            Label(if (isNow) "Ostalo ovaj mjesec" else "Ostalo u ovom mjesecu", color = C.gold)
             Gap(4)
             Text("${money(left)} KM", style = T.big.copy(color = if (left < 0) C.danger else C.text))
             Gap(10)
@@ -124,23 +134,24 @@ fun WalletScreen(onNew: () -> Unit, onSavings: () -> Unit) {
             }
         }
         Gap(8)
-        val listed = txns.filter { filter.isEmpty() || it.kind == filter }
+        val listed = month.filter { filter.isEmpty() || it.kind == filter }
         if (filter.isNotEmpty()) {
             Text("Ukupno: ${money(listed.sumOf { it.amount })} KM", style = T.medium.copy(color = when (filter) { "spent" -> C.danger; "earned" -> C.teal; else -> C.gold }))
             Gap(8)
         }
         if (listed.isEmpty()) Text("Još nema unosa.", style = T.small)
-        (if (filter.isEmpty()) listed.take(10) else listed).forEach { t ->
+        listed.forEach { t ->
             val (color, sign) = when (t.kind) { "spent" -> C.danger to "−"; "earned" -> C.teal to "+"; else -> C.gold to "" }
             val title = when (t.kind) {
                 "saved" -> "Odvojeno · " + (goals.firstOrNull { it.id == t.goalId }?.name ?: "štednja")
                 else -> catName[t.categoryId] ?: if (t.kind == "spent") "Potrošeno" else "Zarađeno"
             }
-            AppCard(Modifier.fillMaxWidth().padding(bottom = 8.dp), onClick = { del = t }, padding = 14.dp) {
+            AppCard(Modifier.fillMaxWidth().padding(bottom = 8.dp), onClick = { menu = t }, padding = 14.dp) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(title, style = T.body)
-                        Text(listOf(t.place, runCatching { LocalDate.parse(t.date).bsShort() }.getOrDefault(t.date)).filter { it.isNotBlank() }.joinToString(" · "), style = T.small)
+                        val forTag = t.effMonth()?.takeIf { m -> t.dateOrNull()?.let { YearMonth.from(it) != m } == true }?.let { "za ${MONTHS_BS[it.monthValue - 1]}" }
+                        Text(listOf(t.place, runCatching { LocalDate.parse(t.date).bsShort() }.getOrDefault(t.date), forTag).filter { !it.isNullOrBlank() }.joinToString(" · "), style = T.small)
                     }
                     Text("$sign${money(t.amount)}", style = T.medium.copy(color = color))
                 }
@@ -171,6 +182,14 @@ fun WalletScreen(onNew: () -> Unit, onSavings: () -> Unit) {
             }
         }
     }
+    menu?.let { t ->
+        AlertDialog(
+            onDismissRequest = { menu = null }, containerColor = C.surface,
+            title = { Text("${money(t.amount)} KM", style = T.h2) },
+            confirmButton = { TextButton(onClick = { menu = null; onEdit(t.id) }) { Text("Uredi", color = C.gold) } },
+            dismissButton = { Row { TextButton(onClick = { del = t; menu = null }) { Text("Obriši", color = C.danger) }; TextButton(onClick = { menu = null }) { Text("Zatvori", color = C.muted) } } }
+        )
+    }
     del?.let { t -> Confirm("Obrisati unos?", "${money(t.amount)} KM", onOk = { scope.launch { dao.deleteTxn(t) } }, onDismiss = { del = null }) }
 }
 
@@ -183,7 +202,7 @@ private fun Stat(label: String, v: Double, color: Color, modifier: Modifier) {
 }
 
 @Composable
-fun NewEntryScreen(onBack: () -> Unit) {
+fun NewEntryScreen(id: Long, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val dao = Graph.db.wallet()
     var kind by remember { mutableStateOf("spent") }
@@ -193,13 +212,24 @@ fun NewEntryScreen(onBack: () -> Unit) {
     var catId by remember { mutableStateOf(0L) }
     var goalId by remember { mutableStateOf(0L) }
     var newCat by remember { mutableStateOf(false) }
+    var forMonth by remember { mutableStateOf<YearMonth?>(null) } // null = mjesec datuma
+    var loaded by remember { mutableStateOf(id == 0L) }
     val cats by dao.observeCategories(if (kind == "earned") "earned" else "spent").collectAsState(emptyList())
     val goals by dao.observeGoals().collectAsState(emptyList())
 
-    LaunchedEffect(kind) { catId = 0 }
+    LaunchedEffect(id) {
+        if (id != 0L) dao.txns().firstOrNull { it.id == id }?.let { t ->
+            kind = t.kind; amount = t.amount.toString().removeSuffix(".0"); date = t.dateOrNull() ?: LocalDate.now(); place = t.place
+            catId = t.categoryId; goalId = t.goalId
+            forMonth = runCatching { YearMonth.parse(t.forMonth) }.getOrNull()
+            loaded = true
+        }
+    }
+    var firstKind by remember { mutableStateOf(true) }
+    LaunchedEffect(kind) { if (firstKind && id != 0L) firstKind = false else catId = 0 }
     val ok = parseAmount(amount) > 0 && (kind == "saved" && goalId != 0L || kind != "saved")
 
-    Page(title = "Novi unos", onBack = onBack) {
+    Page(title = if (id == 0L) "Novi unos" else "Uredi unos", onBack = onBack) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("spent" to "Potrošeno", "earned" to "Zarađeno", "saved" to "Odvojeno").forEach { (k, n) ->
                 Chip(n, kind == k, { kind = k }, accent = when (k) { "spent" -> C.danger; "earned" -> C.teal; else -> C.gold })
@@ -208,7 +238,21 @@ fun NewEntryScreen(onBack: () -> Unit) {
         Gap(14)
         Field(amount, { amount = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, "Iznos", keyboard = KeyboardType.Decimal, suffix = "KM")
         Gap(10)
-        DateField("Datum", date, { date = it })
+        DateField("Datum (kad se desilo)", date, { date = it })
+        Gap(10)
+        val effYm = forMonth ?: YearMonth.from(date)
+        AppCard(color = C.surface2, padding = 12.dp) {
+            Label("Računa se za mjesec", color = C.gold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { forMonth = effYm.minusMonths(1) }) { Icon(Icons.Outlined.ChevronLeft, "Prethodni mjesec", tint = C.text) }
+                Text("${MONTHS_BS[effYm.monthValue - 1].replaceFirstChar { it.uppercase() }} ${effYm.year}", style = T.medium, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+                IconButton(onClick = { forMonth = effYm.plusMonths(1) }) { Icon(Icons.Outlined.ChevronRight, "Sljedeći mjesec", tint = C.text) }
+            }
+            if (forMonth != null && forMonth != YearMonth.from(date)) {
+                Text("Npr. plata za oktobar primljena u novembru: stavi datum primanja, a mjesec oktobar.", style = T.small)
+                TextButton(onClick = { forMonth = null }) { Text("Vrati na mjesec datuma", color = C.gold) }
+            } else Text("Isti mjesec kao datum. Promijeni strelicama ako unos pripada drugom mjesecu.", style = T.small)
+        }
         Gap(10)
         Field(place, { place = it }, when (kind) { "spent" -> "Gdje / napomena"; "earned" -> "Od koga / napomena"; else -> "Napomena" })
         Gap(14)
@@ -227,9 +271,9 @@ fun NewEntryScreen(onBack: () -> Unit) {
             }
         }
         Gap(20)
-        GoldButton("Sačuvaj", Modifier.fillMaxWidth(), enabled = ok) {
+        GoldButton("Sačuvaj", Modifier.fillMaxWidth(), enabled = ok && loaded) {
             scope.launch {
-                dao.insertTxn(Txn(kind = kind, amount = parseAmount(amount), categoryId = if (kind == "saved") 0 else catId, goalId = if (kind == "saved") goalId else 0, date = date.key(), place = place.trim()))
+                dao.insertTxn(Txn(id = id, forMonth = forMonth?.takeIf { it != YearMonth.from(date) }?.toString() ?: "", kind = kind, amount = parseAmount(amount), categoryId = if (kind == "saved") 0 else catId, goalId = if (kind == "saved") goalId else 0, date = date.key(), place = place.trim()))
                 onBack()
             }
         }

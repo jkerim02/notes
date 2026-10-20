@@ -89,7 +89,7 @@ suspend fun buildReport(from: LocalDate, to: LocalDate): Report = withContext(Di
     val remDone = minOf(remTotal, db.reminders().logs(fk, ek).count { it.done })
 
     // novčanik
-    val tx = db.wallet().txns().filter { inRange(it.date) }
+    val tx = db.wallet().txns().filter { inRange(it.effDate()) }
     val earned = tx.filter { it.kind == "earned" }.sumOf { it.amount }
     val spentL = tx.filter { it.kind == "spent" }
     val spent = spentL.sumOf { it.amount }

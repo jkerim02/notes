@@ -56,7 +56,11 @@ fun NamazScreen(onProfile: () -> Unit, onMonthly: () -> Unit) {
     val dao = Graph.db.prayer()
     val day by dao.observeDay(date.key(), s.cityId).collectAsState(null)
     val tomorrow by dao.observeDay(date.plusDays(1).key(), s.cityId).collectAsState(null)
-    val logs by dao.observeLogs(date.key(), date.key()).collectAsState(emptyList())
+    var back by remember { mutableStateOf(0) }
+    val selDate = date.minusDays(back.toLong())
+    val selDay by dao.observeDay(selDate.key(), s.cityId).collectAsState(null)
+    val logs by dao.observeLogs(selDate.key(), selDate.key()).collectAsState(emptyList())
+    val yLogs by dao.observeLogs(date.minusDays(1).key(), date.minusDays(1).key()).collectAsState(emptyList())
     val allDone by dao.observeDone().collectAsState(emptyList())
     var fetchError by remember { mutableStateOf(false) }
 
@@ -64,6 +68,10 @@ fun NamazScreen(onProfile: () -> Unit, onMonthly: () -> Unit) {
         val n = runCatching { kotlinx.coroutines.withContext(Dispatchers.IO) { Vaktija.ensure(s.cityId) } }
         fetchError = n.isFailure
         runCatching { Notifier.rescheduleAll(ctx) }
+    }
+
+    LaunchedEffect(selDate, s.cityId) {
+        if (back > 0 && selDay == null) runCatching { Vaktija.ensureDay(s.cityId, selDate) }
     }
 
     val times = day?.parsed()
@@ -79,9 +87,41 @@ fun NamazScreen(onProfile: () -> Unit, onMonthly: () -> Unit) {
             }
             IconButton(onClick = onMonthly) { Icon(Icons.Outlined.CalendarMonth, "Mjesečni pregled", tint = C.gold) }
         }
-        Gap(14)
+        Gap(12)
+        ChipRow {
+            listOf("Danas", "Jučer", "Prije 2 dana", "Prije 3 dana").forEachIndexed { i, n -> Chip(n, back == i, { back = i }) }
+        }
+        Gap(12)
 
-        if (times == null) {
+        val zora = times?.get(0)
+        val yIsha = yLogs.any { it.vakat == 5 && it.done }
+        if (back == 0 && zora != null && now.toLocalTime().isBefore(zora) && !yIsha) {
+            AppCard(color = C.surface2, border = C.gold) {
+                Text("Jacija od jučer još nije označena", style = T.medium)
+                Text("Ako si je klanjao poslije ponoći, označi je ovdje.", style = T.small)
+                Gap(8)
+                GoldButton("Označi jaciju za jučer") { scope.launch { dao.setLog(PrayerLog(date.minusDays(1).key(), 5, true)) } }
+            }
+            Gap(12)
+        }
+
+        if (back > 0) {
+            val st = selDay?.parsed()
+            AppCard(padding = 4.dp) {
+                Text("${selDate.bs()}", style = T.medium, modifier = Modifier.padding(start = 14.dp, top = 12.dp, bottom = 4.dp))
+                VAKATS.indices.forEach { i ->
+                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(start = 14.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(VAKATS[i], style = T.body, modifier = Modifier.weight(1f))
+                        if (st != null) Text(fmtTime(st[i]), style = T.medium.copy(color = C.text2))
+                        if (isFarz(i)) Circle(i in doneSet, false) { scope.launch { dao.setLog(PrayerLog(selDate.key(), i, i !in doneSet)) } }
+                        else Spacer(Modifier.width(44.dp))
+                    }
+                    if (i < 5) Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(C.line))
+                }
+            }
+            Gap(8)
+            Text("${doneSet.count { isFarz(it) }} od 5 klanjano. Možeš mijenjati zadnja 3 dana.", style = T.small)
+        } else if (times == null) {
             AppCard {
                 Text("Vremena namaza nisu učitana", style = T.h2)
                 Gap(4)

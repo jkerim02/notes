@@ -81,7 +81,8 @@ data class Txn(
     var categoryId: Long = 0,
     var goalId: Long = 0,
     var date: String = "",
-    var place: String = ""
+    var place: String = "",
+    var forMonth: String = "" // "yyyy-MM"; prazno = mjesec datuma
 )
 
 @Entity(tableName = "goal")
@@ -187,7 +188,7 @@ interface WalletDao {
 @Database(
     entities = [VakatDay::class, PrayerLog::class, Reminder::class, ReminderLog::class, Note::class, Book::class,
         ReadingLog::class, Word::class, Category::class, Txn::class, Goal::class, PriceEntry::class],
-    version = 1, exportSchema = false
+    version = 2, exportSchema = false
 )
 abstract class AppDb : RoomDatabase() {
     abstract fun prayer(): PrayerDao

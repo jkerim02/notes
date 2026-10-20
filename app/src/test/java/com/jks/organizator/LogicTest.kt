@@ -96,4 +96,16 @@ class LogicTest {
         assertEquals(0.0, Calc.daily(g, 500.0, 0.0), 0.0)
         assertEquals(9.0, Calc.daily(g, 10.0, 0.0), 0.01)
     }
+
+    @Test fun txnCountsInChosenMonth() {
+        val t = Txn(kind = "earned", amount = 1000.0, date = "2026-11-05", forMonth = "2026-10")
+        assertEquals(java.time.YearMonth.of(2026, 10), t.effMonth())
+        assertEquals("2026-10-31", t.effDate())
+    }
+
+    @Test fun txnDefaultsToDateMonth() {
+        val t = Txn(date = "2026-11-05")
+        assertEquals(java.time.YearMonth.of(2026, 11), t.effMonth())
+        assertEquals("2026-11-05", t.effDate())
+    }
 }

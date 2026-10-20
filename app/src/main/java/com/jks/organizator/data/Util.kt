@@ -32,6 +32,19 @@ fun fmtTime(t: LocalTime): String = String.format(Locale.US, "%d:%02d", t.hour, 
 
 fun VakatDay.parsed(): List<LocalTime> = times.split(",").map { parseTime(it) }
 
+fun Txn.dateOrNull(): LocalDate? = runCatching { LocalDate.parse(date) }.getOrNull()
+
+/** Mjesec u koji se unos računa: izabrani "za mjesec", inače mjesec datuma. */
+fun Txn.effMonth(): java.time.YearMonth? =
+    runCatching { java.time.YearMonth.parse(forMonth) }.getOrNull() ?: dateOrNull()?.let { java.time.YearMonth.from(it) }
+
+/** Datum za izvještaje: ako je unos pripisan drugom mjesecu, računa se na kraj tog mjeseca. */
+fun Txn.effDate(): String {
+    val d = dateOrNull() ?: return date
+    val m = effMonth() ?: return date
+    return if (m == java.time.YearMonth.from(d)) date else m.atEndOfMonth().toString()
+}
+
 fun parseAmount(s: String): Double = s.trim().replace(" ", "").replace(",", ".").toDoubleOrNull() ?: 0.0
 
 // ---------- Hadis ----------

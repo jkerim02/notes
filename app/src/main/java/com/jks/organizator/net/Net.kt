@@ -39,6 +39,15 @@ object Http {
 object Vaktija {
     const val BASE = "https://api.vaktija.ba/vaktija/v1"
 
+    /** Povlači vremena za jedan (npr. prošli) dan ako ih nema lokalno. */
+    suspend fun ensureDay(cityId: Int, d: LocalDate) = withContext(Dispatchers.IO) {
+        val dao = Graph.db.prayer()
+        if (dao.day(d.key(), cityId) != null) return@withContext
+        val j = JSONObject(Http.get("$BASE/$cityId/${d.year}/${d.monthValue}/${d.dayOfMonth}"))
+        val a: JSONArray = j.getJSONArray("vakat")
+        dao.insertDays(listOf(VakatDay(d.key(), cityId, (0 until a.length()).joinToString(",") { a.getString(it) })))
+    }
+
     /** Povlači vremena od danas do [days] dana unaprijed i čuva ih lokalno. Vraća broj novih dana. */
     suspend fun ensure(cityId: Int, days: Int = 35): Int = withContext(Dispatchers.IO) {
         val dao = Graph.db.prayer()
