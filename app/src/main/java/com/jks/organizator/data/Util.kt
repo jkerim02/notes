@@ -16,6 +16,18 @@ val MONTHS_BS = listOf(
 
 fun isFarz(v: Int) = v != 1
 
+/** Bosanska množina: 1 / 2-4 / ostalo (11-14 su "ostalo"). */
+fun plural(n: Int, one: String, few: String, many: String): String {
+    val m10 = n % 10; val m100 = n % 100
+    return when {
+        m10 == 1 && m100 != 11 -> one
+        m10 in 2..4 && m100 !in 12..14 -> few
+        else -> many
+    }
+}
+fun vakata(n: Int) = plural(n, "vakat", "vakta", "vaktova")
+fun dana(n: Int) = plural(n, "dan", "dana", "dana")
+
 fun LocalDate.bs(): String = "${DAYS_BS[dayOfWeek.value - 1]}, $dayOfMonth. ${MONTHS_BS[monthValue - 1]}"
 fun LocalDate.bsShort(): String = "$dayOfMonth. ${MONTHS_BS[monthValue - 1].take(3)}."
 fun LocalDate.key(): String = toString()

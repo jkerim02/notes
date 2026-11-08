@@ -90,7 +90,7 @@ fun BooksScreen() {
                 Gap(6)
                 Row {
                     Text("stranica ${book.currentPage} od ${book.totalPages}", style = T.small.copy(color = C.text2), modifier = Modifier.weight(1f))
-                    Text("$wc riječi", style = T.small.copy(color = C.text2))
+                    Text("$wc ${plural(wc, "riječ", "riječi", "riječi")}", style = T.small.copy(color = C.text2))
                 }
                 Gap(10)
                 GoldButton("Ažuriraj stranicu", Modifier.fillMaxWidth(), onClick = { showPage = true })

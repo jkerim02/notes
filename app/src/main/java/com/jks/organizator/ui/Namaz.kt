@@ -46,7 +46,7 @@ fun streak(done: List<PrayerLog>, today: LocalDate): Int {
 }
 
 @Composable
-fun NamazScreen(onProfile: () -> Unit, onMonthly: () -> Unit) {
+fun NamazScreen(onProfile: () -> Unit, onMonthly: () -> Unit, onYearReport: (String, String) -> Unit = { _, _ -> }) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val s by Graph.prefs.flow.collectAsState(Settings())
@@ -197,17 +197,26 @@ fun NamazScreen(onProfile: () -> Unit, onMonthly: () -> Unit) {
                     Label("Danas")
                     Gap(4)
                     Text("$doneFarz od $passedFarz", style = T.h2)
-                    Text("do sada", style = T.small)
+                    Text("${vakata(passedFarz)} do sada", style = T.small)
                 }
                 AppCard(Modifier.weight(1f)) {
                     Label("Niz")
                     Gap(4)
-                    Text("${streak(allDone, date)} dana", style = T.h2)
-                    Text("svi vakti", style = T.small)
+                    Text("${streak(allDone, date)} ${dana(streak(allDone, date))}", style = T.h2)
+                    Text("svi vaktovi", style = T.small)
                 }
             }
         }
 
+        if (date.monthValue == 12 || date.monthValue == 1) {
+            val y = if (date.monthValue == 12) date.year else date.year - 1
+            Gap(12)
+            AppCard(color = C.surface2, border = C.gold, onClick = { onYearReport("$y-01-01", "$y-12-31") }) {
+                Label("Godišnji izvještaj", color = C.gold)
+                Text("Namaz u $y. godini", style = T.h2)
+                Text("Dodirni za pregled i PDF", style = T.small)
+            }
+        }
         if (s.gemHadith || true) {
             Gap(12)
             HadithCard(s, date)

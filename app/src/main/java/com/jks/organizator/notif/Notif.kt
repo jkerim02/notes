@@ -185,7 +185,7 @@ object Notifier {
         channels(ctx)
         val n = NotificationCompat.Builder(ctx, CH_ALERT)
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle("Jesi li danas klanjao sve vakate?")
+            .setContentTitle("Jesi li danas klanjao sve vaktove?")
             .setContentText("Označi u aplikaciji ili odgovori ovdje.")
             .setAutoCancel(true).setContentIntent(openApp(ctx))
             .addAction(0, "Da, sve", alarmIntent(ctx, A_EVENING_YES, 0, 20))

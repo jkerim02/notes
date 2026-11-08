@@ -126,7 +126,7 @@ private fun AppRoot(startRoute: String?, consumed: () -> Unit) {
 
     Column(Modifier.fillMaxSize().background(C.bg).navigationBarsPadding().imePadding()) {
         NavHost(nav, startDestination = "namaz", modifier = Modifier.weight(1f)) {
-            composable("namaz") { NamazScreen(onProfile = { nav.navigate("profile") }, onMonthly = { nav.navigate("monthly") }) }
+            composable("namaz") { NamazScreen(onProfile = { nav.navigate("profile") }, onMonthly = { nav.navigate("monthly") }, onYearReport = { f, t -> nav.navigate("report/year/$f/$t/$M_PRAYER") }) }
             composable("monthly") { MonthlyScreen({ nav.popBackStack() }) { nav.navigate("report/week/-/-/15") } }
             composable("profile") { ProfileScreen({ nav.popBackStack() }) { k, f, t, m -> nav.navigate("report/$k/$f/$t/$m") } }
             composable(
@@ -145,7 +145,8 @@ private fun AppRoot(startRoute: String?, consumed: () -> Unit) {
                 NoteEditorScreen(it.arguments!!.getLong("id")) { nav.popBackStack() }
             }
             composable("books") { BooksScreen() }
-            composable("wallet") { WalletScreen(onNew = { nav.navigate("newEntry/0") }, onEdit = { nav.navigate("newEntry/$it") }, onSavings = { nav.navigate("savings") }) }
+            composable("wallet") { WalletScreen(onNew = { nav.navigate("newEntry/0") }, onEdit = { nav.navigate("newEntry/$it") }, onSavings = { nav.navigate("savings") }, onReport = { nav.navigate("walletReport/$it") }) }
+            composable("walletReport/{kind}") { WalletReportScreen(it.arguments!!.getString("kind")!!) { nav.popBackStack() } }
             composable("newEntry/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { NewEntryScreen(it.arguments!!.getLong("id")) { nav.popBackStack() } }
             composable("savings") { SavingsScreen({ nav.popBackStack() }) { id -> nav.navigate("goal/$id") } }
             composable("goal/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {

@@ -134,4 +134,30 @@ class LogicTest {
         val logs = days.map { ReminderLog(1, today.minusDays(it).toString(), true) }
         assertEquals(4, com.jks.organizator.notif.Track.bestStreak(r, logs, today.minusDays(30), today))
     }
+
+    @Test fun vakatPlurals() {
+        assertEquals("vakat", vakata(1)); assertEquals("vakta", vakata(2)); assertEquals("vakta", vakata(4))
+        assertEquals("vaktova", vakata(5)); assertEquals("vaktova", vakata(11)); assertEquals("vaktova", vakata(12))
+        assertEquals("vakat", vakata(21)); assertEquals("vakta", vakata(22)); assertEquals("vaktova", vakata(25)); assertEquals("vaktova", vakata(0))
+    }
+
+    @Test fun fixedGoalHasNoDepreciation() {
+        val fixed = Goal(params = "{\"depreciates\":false,\"scenario\":3}")
+        val car = Goal(params = "{\"scenario\":2}")
+        assertEquals(0.0, Calc.rate(fixed), 0.0)
+        assertEquals(0.04, Calc.rate(car), 0.0)
+    }
+
+    @Test fun walletAnalysisComparesPeriods() {
+        val r = com.jks.organizator.ui.WalletReport(
+            LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 30), "novembar", com.jks.organizator.ui.WSum(1000.0, 400.0, 100.0), 0.0,
+            listOf("Kafa" to 250.0, "Gorivo" to 150.0), emptyList(), emptyList(), 1, 5, 1,
+            com.jks.organizator.ui.WSum(900.0, 500.0, 50.0), LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 31), mapOf("Kafa" to 300.0, "Gorivo" to 100.0), null
+        )
+        val a = com.jks.organizator.ui.walletAnalysis(r).joinToString(" ")
+        assertTrue(a.contains("Najviše je potrošeno na „Kafa“"))
+        assertTrue(a.contains("MANJA za 20%"))
+        assertTrue(a.contains("pala potrošnja na „Kafa“"))
+        assertTrue(a.contains("porasla potrošnja na „Gorivo“"))
+    }
 }

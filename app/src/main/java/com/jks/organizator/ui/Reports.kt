@@ -37,7 +37,8 @@ data class Report(
     val remDone: Int, val remTotal: Int,
     val earned: Double, val spent: Double, val saved: Double, val biggest: String?,
     val missed: List<String>, val good: List<String>,
-    val tracked: List<String> = emptyList()
+    val tracked: List<String> = emptyList(),
+    val prevPrayerPct: Int? = null, val prevRange: String = "", val weakest: String? = null
 ) {
     val left get() = earned - spent - saved
 }
@@ -66,6 +67,19 @@ suspend fun buildReport(from: LocalDate, to: LocalDate): Report = withContext(Di
         }
         out
     } else emptyList()
+
+    // poređenje namaza s prethodnim periodom iste dužine
+    val allDoneAll = db.prayer().allDone()
+    val firstLog = allDoneAll.minOfOrNull { it.date }
+    var prevPct: Int? = null
+    var prevRange = ""
+    if (elapsed > 0 && firstLog != null && firstLog < fk) {
+        val pTo = from.minusDays(1); val pFrom = from.minusDays(elapsed.toLong())
+        val pl = db.prayer().logs(pFrom.key(), pTo.key()).count { it.done && isFarz(it.vakat) }
+        prevPct = pl * 100 / (elapsed * 5)
+        prevRange = "${pFrom.dayOfMonth}.${pFrom.monthValue}. – ${pTo.dayOfMonth}.${pTo.monthValue}.${pTo.year}."
+    }
+    val weakest = if (elapsed > 0) listOf(0, 2, 3, 4, 5).let { ids -> ids[perVakat.indices.minByOrNull { perVakat[it] } ?: 0] }.let { VAKATS[it] } else null
 
     // knjige
     val books = db.books().books()
@@ -112,15 +126,15 @@ suspend fun buildReport(from: LocalDate, to: LocalDate): Report = withContext(Di
     val good = mutableListOf<String>()
     if (elapsed > 0) {
         val miss = prayerTotal - logs.size
-        if (miss > 0) missed.add("$miss propuštenih vakata od $prayerTotal")
+        if (miss > 0) missed.add("$miss ${plural(miss, "propušten vakat", "propuštena vakta", "propuštenih vaktova")} od $prayerTotal")
         if (prayerTotal > 0 && logs.size * 100 / prayerTotal >= 90) good.add("Klanjano ${logs.size * 100 / prayerTotal}% namaza")
         val allDone = db.prayer().allDone()
         val st = streak(allDone, today)
-        if (st >= 3) good.add("Niz od $st dana s klanjanim svim vaktovima")
+        if (st >= 3) good.add("Niz od $st ${dana(st)} s klanjanim svim vaktovima")
         if (remTotal - remDone > 0) missed.add("${remTotal - remDone} preskočenih podsjetnika")
         else if (remTotal > 0) good.add("Svi podsjetnici urađeni ($remTotal)")
         if (books.isNotEmpty()) {
-            if (elapsed - readDays > 0) missed.add("${elapsed - readDays} dana bez čitanja")
+            if (elapsed - readDays > 0) missed.add("${elapsed - readDays} ${dana(elapsed - readDays)} bez čitanja")
             if (readDays >= elapsed / 2 && readDays > 0) good.add("Čitao si $readDays od $elapsed dana ($pages str.)")
         }
         if (finished > 0) good.add("Završeno knjiga: $finished")
@@ -129,7 +143,7 @@ suspend fun buildReport(from: LocalDate, to: LocalDate): Report = withContext(Di
         for (g in goals) {
             val before = allTx.filter { it.kind == "saved" && it.goalId == g.id && it.date < fk }.sumOf { it.amount }
             val inP = tx.filter { it.kind == "saved" && it.goalId == g.id }.sumOf { it.amount }
-            val rate = Calc.RATES[Calc.params(g).optInt("scenario", 0)]
+            val rate = Calc.rate(g)
             val need = Calc.daily(g, before, rate) * elapsed
             if (need > 1 && inP < need * 0.9) missed.add("Štednja ispod plana (${g.name}): ${money(inP)} od ${money(need)} KM")
             else if (need > 1) good.add("Štednja po planu (${g.name}): ${money(inP)} KM")
@@ -137,7 +151,7 @@ suspend fun buildReport(from: LocalDate, to: LocalDate): Report = withContext(Di
         if (earned > 0 && spent + saved <= earned) good.add("Potrošnja unutar zarade, ostalo ${money(earned - spent - saved)} KM")
         if (earned > 0 && spent > earned) missed.add("Potrošeno više nego zarađeno (${money(spent - earned)} KM)")
     }
-    Report(from, end, elapsed, logs.size, prayerTotal, perVakat, monthly, pages, words, finished, readDays, books.isNotEmpty(), remDone, remTotal, earned, spent, saved, big, missed, good, trackedLines)
+    Report(from, end, elapsed, logs.size, prayerTotal, perVakat, monthly, pages, words, finished, readDays, books.isNotEmpty(), remDone, remTotal, earned, spent, saved, big, missed, good, trackedLines, prevPct, prevRange, weakest)
 }
 
 fun reportLines(r: Report, mask: Int): List<Pair<String, Boolean>> {
@@ -148,6 +162,8 @@ fun reportLines(r: Report, mask: Int): List<Pair<String, Boolean>> {
         val pct = if (r.prayerTotal == 0) 0 else r.prayerDone * 100 / r.prayerTotal
         l += "$pct% (${r.prayerDone} od ${r.prayerTotal} namaza)" to false
         listOf(0, 2, 3, 4, 5).forEachIndexed { i, v -> l += "  ${VAKATS[v]}: ${r.perVakat[i]}/${r.elapsed}" to false }
+        r.prevPrayerPct?.let { pp -> l += "Prethodni period (${r.prevRange}): $pp% → sada $pct% (" + (if (pct >= pp) "+" else "−") + "${kotlin.math.abs(pct - pp)} poena)" to false }
+        r.weakest?.let { l += "Najčešće propušteni vakat: $it" to false }
         r.monthly.forEach { l += "  ${it.first}: ${it.second}%" to false }
     }
     if (mask and M_BOOKS != 0) {
@@ -167,7 +183,9 @@ fun reportLines(r: Report, mask: Int): List<Pair<String, Boolean>> {
     return l
 }
 
-suspend fun writePdf(ctx: Context, uri: Uri, r: Report, mask: Int) = withContext(Dispatchers.IO) {
+suspend fun writePdf(ctx: Context, uri: Uri, r: Report, mask: Int) = writeLinesPdf(ctx, uri, reportLines(r, mask))
+
+suspend fun writeLinesPdf(ctx: Context, uri: Uri, lines: List<Pair<String, Boolean>>) = withContext(Dispatchers.IO) {
     val doc = PdfDocument()
     val body = Paint().apply { textSize = 11f; color = 0xFF222222.toInt() }
     val head = Paint().apply { textSize = 15f; typeface = Typeface.DEFAULT_BOLD; color = 0xFF000000.toInt() }
@@ -183,7 +201,7 @@ suspend fun writePdf(ctx: Context, uri: Uri, r: Report, mask: Int) = withContext
         }
         out.add(cur); return out
     }
-    for ((text, isHead) in reportLines(r, mask)) {
+    for ((text, isHead) in lines) {
         val p = if (isHead) head else body
         if (isHead) y += 10f
         for (line in wrap(text, p)) {
@@ -198,6 +216,21 @@ suspend fun writePdf(ctx: Context, uri: Uri, r: Report, mask: Int) = withContext
     doc.finishPage(page)
     ctx.contentResolver.openOutputStream(uri, "wt")!!.use { doc.writeTo(it) }
     doc.close()
+}
+
+@Composable
+fun rememberLinesPdfExporter(fileName: String, build: suspend () -> List<Pair<String, Boolean>>): () -> Unit {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val l = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri != null) scope.launch {
+            try {
+                writeLinesPdf(ctx, uri, build())
+                Toast.makeText(ctx, "PDF sačuvan", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) { Toast.makeText(ctx, "Greška: ${e.message}", Toast.LENGTH_LONG).show() }
+        }
+    }
+    return { l.launch(fileName) }
 }
 
 @Composable
@@ -222,6 +255,7 @@ fun ReportScreen(kind: String, fromArg: String, toArg: String, mask: Int, onBack
     var k by remember { mutableStateOf(kind) }
     var from by remember { mutableStateOf(runCatching { LocalDate.parse(fromArg) }.getOrDefault(today.minusDays(6))) }
     var to by remember { mutableStateOf(runCatching { LocalDate.parse(toArg) }.getOrDefault(today)) }
+    val scope = rememberCoroutineScope()
     var report by remember { mutableStateOf<Report?>(null) }
     LaunchedEffect(k, from, to) { report = buildReport(from, to) }
     val export = rememberPdfExporter { buildReport(from, to) to mask }
@@ -231,6 +265,7 @@ fun ReportScreen(kind: String, fromArg: String, toArg: String, mask: Int, onBack
             Chip("Sedmica", k == "week", { k = "week"; from = today.minusDays(6); to = today })
             Chip("Mjesec", k == "month", { k = "month"; from = today.withDayOfMonth(1); to = today })
             Chip("Godina", k == "year", { k = "year"; from = today.withDayOfYear(1); to = today })
+            Chip("Od početka", k == "all", { k = "all"; scope.launch { from = Graph.db.prayer().allDone().minOfOrNull { it.date }?.let { LocalDate.parse(it) } ?: today; to = today } })
             Chip("Svoj period", k == "custom", { k = "custom" })
         }
         if (k == "custom") {
@@ -252,6 +287,12 @@ fun ReportScreen(kind: String, fromArg: String, toArg: String, mask: Int, onBack
                         Text("$pct%", style = T.big)
                         Text("  ${r.prayerDone} od ${r.prayerTotal} namaza", style = T.small, modifier = Modifier.padding(bottom = 8.dp))
                     }
+                    r.prevPrayerPct?.let { pp ->
+                        val better = pct >= pp
+                        Text((if (better) "▲ " else "▼ ") + "${kotlin.math.abs(pct - pp)} poena " + (if (better) "bolje" else "slabije") + " nego prethodni period (${r.prevRange}: $pp%)",
+                            style = T.small.copy(color = if (better) C.teal else C.danger))
+                    }
+                    r.weakest?.let { if (r.prayerTotal > 0) Text("Najčešće propušteni vakat: $it", style = T.small, modifier = Modifier.padding(top = 2.dp)) }
                     Gap(6)
                     listOf(0, 2, 3, 4, 5).forEachIndexed { i, v ->
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {

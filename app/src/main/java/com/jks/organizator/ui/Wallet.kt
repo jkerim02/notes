@@ -36,6 +36,10 @@ object Calc {
 
     fun target(price: Double, rate: Double, days: Long) = price * (1 - rate).pow(days / 365.0)
 
+    /** Cijena pada samo kod stvari poput auta; za fiksne stvari (prsten, naočale) nema predviđanja. */
+    fun depreciates(g: Goal): Boolean = params(g).optBoolean("depreciates", true)
+    fun rate(g: Goal): Double = if (depreciates(g)) RATES[params(g).optInt("scenario", 0)] else 0.0
+
     fun daily(g: Goal, saved: Double, rate: Double): Double {
         val d = days(g.deadline)
         return maxOf(0.0, (target(g.price, rate, d) - saved) / d)
@@ -48,13 +52,13 @@ object Calc {
         return when {
             y > 0 -> "$y god ${m} mj"
             m > 0 -> "$m mj"
-            else -> "$daysCount dana"
+            else -> "$daysCount ${dana(daysCount.toInt())}"
         }
     }
 }
 
 @Composable
-fun WalletScreen(onNew: () -> Unit, onEdit: (Long) -> Unit, onSavings: () -> Unit) {
+fun WalletScreen(onNew: () -> Unit, onEdit: (Long) -> Unit, onSavings: () -> Unit, onReport: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val dao = Graph.db.wallet()
     val txns by dao.observeTxns().collectAsState(emptyList())
@@ -79,6 +83,9 @@ fun WalletScreen(onNew: () -> Unit, onEdit: (Long) -> Unit, onSavings: () -> Uni
     var menu by remember { mutableStateOf<Txn?>(null) }
     var confirmEdit by remember { mutableStateOf<Txn?>(null) }
     var filter by remember { mutableStateOf("") }
+    var showCarry by remember { mutableStateOf(false) }
+    val carry = remember(txns, ym) { txns.filter { (it.effMonth() ?: ym) < ym }.let { l -> l.filter { it.kind == "earned" }.sumOf { it.amount } - l.filter { it.kind == "spent" }.sumOf { it.amount } - l.filter { it.kind == "saved" }.sumOf { it.amount } } }
+    val today0 = LocalDate.now()
 
     Page(
         title = "Novčanik",
@@ -93,12 +100,33 @@ fun WalletScreen(onNew: () -> Unit, onEdit: (Long) -> Unit, onSavings: () -> Uni
         AppCard(border = C.gold, color = C.surface2) {
             Label(if (isNow) "Ostalo ovaj mjesec" else "Ostalo u ovom mjesecu", color = C.gold)
             Gap(4)
-            Text("${money(left)} KM", style = T.big.copy(color = if (left < 0) C.danger else C.text))
+            val shownLeft = left + if (showCarry) carry else 0.0
+            Text("${money(shownLeft)} KM", style = T.big.copy(color = if (shownLeft < 0) C.danger else C.text))
             Gap(10)
             Row {
                 Stat("Zarađeno", earned, C.teal, Modifier.weight(1f))
                 Stat("Potrošeno", spent, C.danger, Modifier.weight(1f))
                 Stat("Odvojeno", saved, C.gold, Modifier.weight(1f))
+            }
+            Gap(8)
+            SwitchRow("Uključi preneseno iz ranijih mjeseci", "Preneseno: ${money(carry)} KM" + if (carry > 0) " (bio si u plusu)" else if (carry < 0) " (bio si u minusu)" else "", showCarry, { showCarry = it })
+        }
+        Gap(12)
+        AppCard(onClick = { onReport("month") }) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Label("Izvještaji i ukupno")
+                    Text("Sedmica, mjesec, godina, od početka ili od–do, uz PDF", style = T.small)
+                }
+                Text("›", style = T.h2.copy(color = C.gold))
+            }
+        }
+        if (today0.monthValue == 12 || today0.monthValue == 1) {
+            Gap(12)
+            AppCard(color = C.surface2, border = C.gold, onClick = { onReport(if (today0.monthValue == 12) "year" else "lastyear") }) {
+                Label("Godišnji izvještaj", color = C.gold)
+                Text("Novčanik u ${if (today0.monthValue == 12) today0.year else today0.year - 1}. godini", style = T.h2)
+                Text("Dodirni za pregled i PDF", style = T.small)
             }
         }
         Gap(12)
@@ -121,7 +149,7 @@ fun WalletScreen(onNew: () -> Unit, onEdit: (Long) -> Unit, onSavings: () -> Uni
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Label("Štednja")
-                    Text("${goals.size} ${if (goals.size == 1) "cilj" else "ciljeva"}", style = T.body)
+                    Text("${goals.size} ${plural(goals.size, "cilj", "cilja", "ciljeva")}", style = T.body)
                 }
                 Text("${money(txns.filter { it.kind == "saved" }.sumOf { it.amount })} KM", style = T.h2.copy(color = C.gold))
             }
@@ -325,7 +353,7 @@ fun SavingsScreen(onBack: () -> Unit, onGoal: (Long) -> Unit) {
         Gap(12)
         goals.forEach { g ->
             val sv = Calc.saved(g.id, txns)
-            val daily = Calc.daily(g, sv, Calc.RATES[Calc.params(g).optInt("scenario", 0)])
+            val daily = Calc.daily(g, sv, Calc.rate(g))
             AppCard(Modifier.fillMaxWidth().padding(bottom = 12.dp), onClick = { onGoal(g.id) }) {
                 Text(g.name, style = T.h2)
                 Gap(8)
@@ -345,6 +373,7 @@ fun SavingsScreen(onBack: () -> Unit, onGoal: (Long) -> Unit) {
         var name by remember { mutableStateOf("") }
         var price by remember { mutableStateOf("") }
         var dl by remember { mutableStateOf(LocalDate.now().plusYears(1)) }
+        var dep by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { add = false }, containerColor = C.surface, title = { Text("Novi cilj", style = T.h2) },
             text = {
@@ -352,12 +381,18 @@ fun SavingsScreen(onBack: () -> Unit, onGoal: (Long) -> Unit) {
                     Field(name, { name = it }, "Naziv (npr. Automobil)")
                     Field(price, { price = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, "Cijena", keyboard = KeyboardType.Decimal, suffix = "KM")
                     DateField("Rok", dl, { dl = it })
+                    Label("Vrsta cilja")
+                    ChipRow {
+                        Chip("Fiksna cijena", !dep, { dep = false })
+                        Chip("Cijena pada (auto...)", dep, { dep = true })
+                    }
+                    Text(if (dep) "Za auto, telefon i slično: nudi se predviđanje pada cijene." else "Za prsten, naočale i slično: cijena se ne mijenja, nema predviđanja.", style = T.small)
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     if (name.isNotBlank()) {
-                        scope.launch { dao.insertGoal(Goal(name = name.trim(), price = parseAmount(price), deadline = dl.key())) }
+                        scope.launch { dao.insertGoal(Goal(name = name.trim(), price = parseAmount(price), deadline = dl.key(), params = JSONObject().put("depreciates", dep).toString())) }
                         add = false
                     }
                 }) { Text("Sačuvaj", color = C.gold) }
@@ -387,8 +422,9 @@ fun GoalScreen(id: Long, onBack: () -> Unit) {
     if (g == null) { Page(title = "Cilj", onBack = onBack) { Text("Cilj ne postoji.", style = T.small) }; return }
     val p = Calc.params(g)
     val sv = Calc.saved(g.id, txns)
+    val dep = Calc.depreciates(g)
     val scenario = p.optInt("scenario", 0)
-    val rate = Calc.RATES[scenario]
+    val rate = Calc.rate(g)
     val days = Calc.days(g.deadline)
     val target = Calc.target(g.price, rate, days)
     val daily = Calc.daily(g, sv, rate)
@@ -398,7 +434,7 @@ fun GoalScreen(id: Long, onBack: () -> Unit) {
         IconButton(onClick = { delete = true }) { Icon(Icons.Outlined.Delete, "Obriši", tint = C.danger) }
     }) {
         AppCard(border = C.gold, color = C.surface2) {
-            Label("Procijenjena cijena", color = C.gold)
+            Label(if (dep) "Procijenjena cijena" else "Cijena", color = C.gold)
             Text("${money(g.price)} KM", style = T.big)
             if (p.has("low") && p.has("high")) Text("raspon ${moneyInt(p.optDouble("low"))} – ${moneyInt(p.optDouble("high"))} KM", style = T.small)
             Gap(10)
@@ -406,7 +442,7 @@ fun GoalScreen(id: Long, onBack: () -> Unit) {
             Gap(6)
             Text("ušteđeno ${money(sv)} KM · rok ${g.deadline}", style = T.small.copy(color = C.text2))
         }
-        prices.firstOrNull()?.let {
+        if (dep) prices.firstOrNull()?.let {
             val age = ChronoUnit.DAYS.between(LocalDate.parse(it.date), LocalDate.now())
             if (age > 90) Text("Cijena nije osvježavana $age dana. Vrijeme je za novu provjeru.", style = T.small.copy(color = C.gold), modifier = Modifier.padding(top = 8.dp))
         }
@@ -428,7 +464,7 @@ fun GoalScreen(id: Long, onBack: () -> Unit) {
             else if (pace > 0) {
                 val need = ceil(remaining / pace).toLong()
                 Text("Tvoj tempo: ${money(pace)} KM dnevno (zadnjih $winDays dana)", style = T.small.copy(color = C.text2))
-                Text("Ovim tempom treba još ~$need dana (${Calc.duration(need)}), oko ${todayD.plusDays(need).let { "${it.dayOfMonth}.${it.monthValue}.${it.year}." }}", style = T.body.copy(color = C.gold), modifier = Modifier.padding(top = 4.dp))
+                Text("Ovim tempom treba još ~$need ${dana(need.toInt())} (${Calc.duration(need)}), oko ${todayD.plusDays(need).let { "${it.dayOfMonth}.${it.monthValue}.${it.year}." }}", style = T.body.copy(color = C.gold), modifier = Modifier.padding(top = 4.dp))
                 if (daily > 0) Text("Za rok ${g.deadline} treba ${money(daily)} KM dnevno", style = T.small, modifier = Modifier.padding(top = 4.dp))
             } else Text("Upiši prvu uplatu da vidiš tempo.", style = T.small)
         }
@@ -466,6 +502,16 @@ fun GoalScreen(id: Long, onBack: () -> Unit) {
         }
         delDep?.let { t -> Confirm("Obrisati uplatu?", "${money(t.amount)} KM", onOk = { scope.launch { dao.deleteTxn(t) } }, onDismiss = { delDep = null }) }
         Gap(14)
+        Label("Vrsta cilja")
+        Gap(6)
+        ChipRow {
+            Chip("Fiksna cijena", !dep, { saveParams { put("depreciates", false) } })
+            Chip("Cijena pada (auto...)", dep, { saveParams { put("depreciates", true) } })
+        }
+        Text(if (dep) "Nudi se predviđanje pada cijene." else "Nema predviđanja: cijena je fiksna.", style = T.small, modifier = Modifier.padding(top = 4.dp))
+        Gap(10)
+        if (!dep) GhostButton("Upiši cijenu ručno", Modifier.fillMaxWidth()) { manual = true }
+        if (dep) {
         Label("Parametri")
         Gap(8)
         var year by remember(g.params) { mutableStateOf(p.optString("year")) }
@@ -493,12 +539,13 @@ fun GoalScreen(id: Long, onBack: () -> Unit) {
         }
         if (loading || err != null || note != null) { Gap(8); GeminiCard("Procjena", note, loading, err) }
         Text("Procjena je raspon, ne obećanje: pouzdana je samo cijena iz stvarnih oglasa.", style = T.small, modifier = Modifier.padding(top = 6.dp))
+        }
 
         Gap(16)
         AppCard {
             Label("Kalkulator do roka")
             Gap(4)
-            Text("cijena do roka: ${money(target)} KM · još $days dana", style = T.small)
+            Text((if (dep) "cijena do roka: ${money(target)} KM · " else "cijena: ${money(target)} KM · ") + "još $days ${dana(days.toInt())}", style = T.small)
             Gap(10)
             Row {
                 Calc3("Dnevno", daily, Modifier.weight(1f))
@@ -514,7 +561,7 @@ fun GoalScreen(id: Long, onBack: () -> Unit) {
                 val d = if (target - sv <= 0) 0L else ceil((target - sv) / a).toLong()
                 Row(Modifier.padding(vertical = 4.dp)) {
                     Text("${a.toInt()} KM", style = T.medium, modifier = Modifier.weight(1f))
-                    Text("$d dana", style = T.body, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                    Text("$d ${dana(d.toInt())}", style = T.body, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
                     Text(Calc.duration(d), style = T.small.copy(color = C.text2), modifier = Modifier.weight(1f), textAlign = TextAlign.End)
                 }
             }
